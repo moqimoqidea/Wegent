@@ -39,6 +39,28 @@ _PROVIDER_ALIASES = {
     "gemini": "google",
 }
 
+# Model patterns that should use OpenAI Responses API (/v1/responses)
+# instead of Chat Completions API (/v1/chat/completions)
+_RESPONSES_API_PATTERNS = (
+    "gpt-5",  # gpt-5, gpt-5.1, gpt-5.2, gpt-5-nano, etc.
+)
+
+
+def _should_use_responses_api(model_id: str) -> bool:
+    """Check if the model should use OpenAI Responses API.
+
+    Models matching gpt-5.* pattern will use /v1/responses endpoint
+    instead of /v1/chat/completions.
+
+    Args:
+        model_id: Model identifier (e.g., "gpt-5.1", "gpt-5.2-turbo")
+
+    Returns:
+        True if Responses API should be used
+    """
+    model_lower = model_id.lower()
+    return any(model_lower.startswith(p) for p in _RESPONSES_API_PATTERNS)
+
 
 def _detect_provider(model_type: str, model_id: str) -> str:
     """Detect provider from model type or model ID."""
@@ -86,6 +108,17 @@ class LangChainModelFactory:
                 "temperature": kw.get("temperature", 1.0),
                 "max_tokens": kw.get("max_tokens"),
                 "streaming": kw.get("streaming", False),
+                # Auto-enable Responses API for gpt-5.x models
+                # Can be explicitly overridden via config or kwargs
+                "use_responses_api": (
+                    cfg.get("use_responses_api")
+                    if cfg.get("use_responses_api") is not None
+                    else (
+                        kw.get("use_responses_api")
+                        if kw.get("use_responses_api") is not None
+                        else _should_use_responses_api(cfg["model_id"])
+                    )
+                ),
                 "model_kwargs": (
                     {"extra_headers": cfg.get("default_headers")}
                     if cfg.get("default_headers")
