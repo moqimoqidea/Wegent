@@ -148,6 +148,11 @@ class Settings(BaseSettings):
         50  # Default max results when not specified by LLM or engine config
     )
 
+    # OpenAI Responses API web search configuration
+    # When enabled, models using Responses API (e.g., gpt-5.*) will automatically
+    # include the server-side web_search_preview tool for web search capability
+    RESPONSES_API_WEB_SEARCH_ENABLED: bool = True
+
     # Wizard configuration
     # The name of the public model to use for wizard AI features (follow-up questions, prompt generation)
     # If not set or empty, wizard will try to find any available model (user's first, then public)

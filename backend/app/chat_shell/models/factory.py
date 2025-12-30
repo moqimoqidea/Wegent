@@ -20,6 +20,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Provider detection: (prefixes, provider_name)
@@ -60,6 +62,79 @@ def _should_use_responses_api(model_id: str) -> bool:
     """
     model_lower = model_id.lower()
     return any(model_lower.startswith(p) for p in _RESPONSES_API_PATTERNS)
+
+
+def _get_responses_api_builtin_tools(
+    cfg: dict[str, Any], kw: dict[str, Any]
+) -> list[dict[str, str]] | None:
+    """Get built-in tools for OpenAI Responses API.
+
+    When using Responses API, this function returns server-side tools like
+    web_search_preview based on configuration settings.
+
+    Args:
+        cfg: Model configuration dict
+        kw: Additional kwargs
+
+    Returns:
+        List of built-in tool configs, or None if no tools should be added
+    """
+    # Determine if Responses API will be used
+    use_responses = cfg.get("use_responses_api")
+    if use_responses is None:
+        use_responses = kw.get("use_responses_api")
+    if use_responses is None:
+        use_responses = _should_use_responses_api(cfg.get("model_id", ""))
+
+    if not use_responses:
+        return None
+
+    builtin_tools: list[dict[str, str]] = []
+
+    # Check if web search should be enabled for Responses API
+    # Priority: config explicit setting > kwargs > global setting
+    web_search_enabled = cfg.get("responses_api_web_search_enabled")
+    if web_search_enabled is None:
+        web_search_enabled = kw.get("responses_api_web_search_enabled")
+    if web_search_enabled is None:
+        web_search_enabled = settings.RESPONSES_API_WEB_SEARCH_ENABLED
+
+    if web_search_enabled:
+        builtin_tools.append({"type": "web_search_preview"})
+        logger.debug(
+            "Adding web_search_preview tool for Responses API model: %s",
+            cfg.get("model_id"),
+        )
+
+    return builtin_tools if builtin_tools else None
+
+
+def _build_openai_model_kwargs(
+    cfg: dict[str, Any], kw: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Build model_kwargs for OpenAI ChatOpenAI.
+
+    Combines extra_headers with built-in tools for Responses API.
+
+    Args:
+        cfg: Model configuration dict
+        kw: Additional kwargs
+
+    Returns:
+        model_kwargs dict or None if empty
+    """
+    model_kwargs: dict[str, Any] = {}
+
+    # Add extra_headers if present
+    if cfg.get("default_headers"):
+        model_kwargs["extra_headers"] = cfg["default_headers"]
+
+    # Add built-in tools for Responses API
+    builtin_tools = _get_responses_api_builtin_tools(cfg, kw)
+    if builtin_tools:
+        model_kwargs["tools"] = builtin_tools
+
+    return model_kwargs if model_kwargs else None
 
 
 def _detect_provider(model_type: str, model_id: str) -> str:
@@ -119,11 +194,8 @@ class LangChainModelFactory:
                         else _should_use_responses_api(cfg["model_id"])
                     )
                 ),
-                "model_kwargs": (
-                    {"extra_headers": cfg.get("default_headers")}
-                    if cfg.get("default_headers")
-                    else None
-                ),
+                # Build model_kwargs with extra_headers and built-in tools
+                "model_kwargs": _build_openai_model_kwargs(cfg, kw),
             },
         },
         "anthropic": {
