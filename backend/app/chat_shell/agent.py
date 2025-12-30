@@ -123,6 +123,9 @@ class ChatAgent:
             config.model_config, streaming=config.streaming
         )
 
+        # Get built-in server-side tools for this model (e.g., web_search_preview for Responses API)
+        builtin_tools = LangChainModelFactory.get_builtin_tools(config.model_config)
+
         # Create a temporary registry with extra tools
         tool_registry = ToolRegistry()
 
@@ -142,6 +145,7 @@ class ChatAgent:
             max_iterations=config.max_iterations,
             enable_checkpointing=self.enable_checkpointing,
             load_skill_tool=config.load_skill_tool,
+            builtin_tools=builtin_tools,
         )
 
     async def execute(

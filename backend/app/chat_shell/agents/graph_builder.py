@@ -25,6 +25,9 @@ from langgraph.prebuilt import create_react_agent
 
 from ..tools.base import ToolRegistry
 
+# Type alias for built-in tools (server-side tools like web_search_preview)
+BuiltinTool = dict[str, str]
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +41,7 @@ class LangGraphAgentBuilder:
         max_iterations: int = 10,
         enable_checkpointing: bool = False,
         load_skill_tool: Any | None = None,
+        builtin_tools: list[BuiltinTool] | None = None,
     ):
         """Initialize agent builder.
 
@@ -47,6 +51,8 @@ class LangGraphAgentBuilder:
             max_iterations: Maximum tool loop iterations
             enable_checkpointing: Enable state checkpointing for resumability
             load_skill_tool: Optional LoadSkillTool instance for dynamic skill prompt injection
+            builtin_tools: Optional list of built-in server-side tools (e.g., web_search_preview)
+                These are passed as dicts to create_react_agent and handled by LangGraph.
         """
         self.llm = llm
         self.tool_registry = tool_registry
@@ -54,6 +60,7 @@ class LangGraphAgentBuilder:
         self.enable_checkpointing = enable_checkpointing
         self._agent = None
         self._load_skill_tool = load_skill_tool
+        self._builtin_tools = builtin_tools or []
 
         # Get all LangChain tools from registry
         self.tools: list[BaseTool] = []
@@ -150,10 +157,22 @@ class LangGraphAgentBuilder:
         # Create prompt modifier for dynamic skill prompt injection
         prompt_modifier = self._create_prompt_modifier()
 
+        # Combine LangChain tools with built-in server-side tools
+        # Built-in tools (dicts like {"type": "web_search_preview"}) are handled
+        # specially by LangGraph - they're passed to bind_tools alongside function tools
+        all_tools: list[BaseTool | BuiltinTool] = list(self.tools) + self._builtin_tools
+
+        if self._builtin_tools:
+            logger.info(
+                "[LangGraphAgentBuilder] Including %d built-in tools: %s",
+                len(self._builtin_tools),
+                self._builtin_tools,
+            )
+
         # Build agent with optional prompt modifier for dynamic system prompt updates
         self._agent = create_react_agent(
             model=self.llm,
-            tools=self.tools,
+            tools=all_tools,
             checkpointer=checkpointer,
             prompt=prompt_modifier,
         )

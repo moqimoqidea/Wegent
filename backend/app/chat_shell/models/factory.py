@@ -114,7 +114,9 @@ def _build_openai_model_kwargs(
 ) -> dict[str, Any] | None:
     """Build model_kwargs for OpenAI ChatOpenAI.
 
-    Combines extra_headers with built-in tools for Responses API.
+    Note: Built-in tools for Responses API (like web_search_preview) should NOT
+    be added here. They need to be passed directly to LangGraph's create_react_agent
+    via the tools parameter, as bind_tools() would otherwise overwrite them.
 
     Args:
         cfg: Model configuration dict
@@ -128,11 +130,6 @@ def _build_openai_model_kwargs(
     # Add extra_headers if present
     if cfg.get("default_headers"):
         model_kwargs["extra_headers"] = cfg["default_headers"]
-
-    # Add built-in tools for Responses API
-    builtin_tools = _get_responses_api_builtin_tools(cfg, kw)
-    if builtin_tools:
-        model_kwargs["tools"] = builtin_tools
 
     return model_kwargs if model_kwargs else None
 
@@ -335,3 +332,33 @@ class LangChainModelFactory:
     def is_supported(cls, model_id: str) -> bool:
         """Check if model is supported by any provider."""
         return cls.get_provider(model_id) is not None
+
+    @staticmethod
+    def get_builtin_tools(
+        model_config: dict[str, Any], **kwargs
+    ) -> list[dict[str, str]]:
+        """Get built-in server-side tools for a model.
+
+        For OpenAI Responses API models (gpt-5.x), this returns server-side tools
+        like web_search_preview that should be passed to LangGraph's create_react_agent.
+
+        These tools are different from LangChain BaseTool instances - they are
+        OpenAI's built-in capabilities that run on their servers.
+
+        Args:
+            model_config: Model configuration dict with model_id, etc.
+            **kwargs: Additional parameters (can override responses_api_web_search_enabled)
+
+        Returns:
+            List of built-in tool configs (e.g., [{"type": "web_search_preview"}])
+            Empty list if no built-in tools should be added.
+        """
+        cfg = {
+            "model_id": model_config.get("model_id", "gpt-4"),
+            "use_responses_api": model_config.get("use_responses_api"),
+            "responses_api_web_search_enabled": model_config.get(
+                "responses_api_web_search_enabled"
+            ),
+        }
+        builtin_tools = _get_responses_api_builtin_tools(cfg, kwargs)
+        return builtin_tools or []
