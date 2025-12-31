@@ -434,6 +434,23 @@ class TestOpenAPIResponsesCreate:
         # Should fail at team lookup, but tools should be parsed
         assert response.status_code == 404
 
+    def test_create_response_with_disable_wegent_tools(
+        self, test_client: TestClient, test_api_key
+    ):
+        """Test create response with disable_wegent_tools parameter."""
+        response = test_client.post(
+            "/api/v1/responses",
+            headers={"X-API-Key": test_api_key[0]},
+            json={
+                "model": "default#nonexistent-team",
+                "input": "Hello",
+                "tools": [{"type": "disable_wegent_tools"}],
+            },
+        )
+
+        # Should fail at team lookup, but tools should be parsed
+        assert response.status_code == 404
+
     def test_create_response_with_list_input(
         self, test_client: TestClient, test_api_key
     ):
@@ -860,6 +877,7 @@ class TestOpenAPIResponsesHelpers:
 
         result = parse_wegent_tools(None)
         assert result["enable_deep_thinking"] is False
+        assert result["disable_wegent_tools"] is False
 
     def test_parse_wegent_tools_deep_thinking(self):
         """Test parsing tools with deep thinking enabled."""
@@ -869,6 +887,30 @@ class TestOpenAPIResponsesHelpers:
         tools = [WegentTool(type="wegent_deep_thinking")]
         result = parse_wegent_tools(tools)
         assert result["enable_deep_thinking"] is True
+        assert result["disable_wegent_tools"] is False
+
+    def test_parse_wegent_tools_disable_wegent_tools(self):
+        """Test parsing tools with disable_wegent_tools enabled."""
+        from app.schemas.openapi_response import WegentTool
+        from app.services.openapi.helpers import parse_wegent_tools
+
+        tools = [WegentTool(type="disable_wegent_tools")]
+        result = parse_wegent_tools(tools)
+        assert result["enable_deep_thinking"] is False
+        assert result["disable_wegent_tools"] is True
+
+    def test_parse_wegent_tools_multiple_tools(self):
+        """Test parsing tools with multiple tool types."""
+        from app.schemas.openapi_response import WegentTool
+        from app.services.openapi.helpers import parse_wegent_tools
+
+        tools = [
+            WegentTool(type="wegent_deep_thinking"),
+            WegentTool(type="disable_wegent_tools"),
+        ]
+        result = parse_wegent_tools(tools)
+        assert result["enable_deep_thinking"] is True
+        assert result["disable_wegent_tools"] is True
 
     def test_wegent_status_to_openai_status(self):
         """Test status conversion from Wegent to OpenAI format."""

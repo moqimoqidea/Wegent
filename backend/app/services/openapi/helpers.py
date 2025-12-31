@@ -76,14 +76,18 @@ def parse_wegent_tools(tools: Optional[List[WegentTool]]) -> Dict[str, Any]:
     Returns:
         Dict with parsed tool settings:
         - enable_deep_thinking: bool (also enables web search if WEB_SEARCH_ENABLED)
+        - disable_wegent_tools: bool (disables all server-side default tools)
     """
     result = {
         "enable_deep_thinking": False,
+        "disable_wegent_tools": False,
     }
     if tools:
         for tool in tools:
             if tool.type == "wegent_deep_thinking":
                 result["enable_deep_thinking"] = True
+            elif tool.type == "disable_wegent_tools":
+                result["disable_wegent_tools"] = True
     return result
 
 
