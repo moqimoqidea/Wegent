@@ -309,14 +309,19 @@ class LangGraphAgentBuilder:
                     data = event.get("data", {})
                     chunk = data.get("chunk")
 
-                    # Log chunk details for debugging
+                    # Log chunk details for debugging (especially for Responses API)
                     if chunk:
                         logger.debug(
-                            "[stream_tokens] on_chat_model_stream: chunk_type=%s, has_content=%s, content_type=%s",
+                            "[stream_tokens] on_chat_model_stream: chunk_type=%s, has_content=%s, content_type=%s, content=%s",
                             type(chunk).__name__,
                             hasattr(chunk, "content"),
                             (
                                 type(chunk.content).__name__
+                                if hasattr(chunk, "content")
+                                else "N/A"
+                            ),
+                            (
+                                repr(chunk.content)[:200]
                                 if hasattr(chunk, "content")
                                 else "N/A"
                             ),
@@ -370,24 +375,43 @@ class LangGraphAgentBuilder:
                     output = data.get("output", {})
                     messages_output = output.get("messages", [])
 
+                    logger.info(
+                        "[stream_tokens] on_chain_end LangGraph: messages_count=%d",
+                        len(messages_output),
+                    )
+
                     if messages_output:
                         # Get the last AI message
                         for msg in reversed(messages_output):
                             if isinstance(msg, AIMessage):
+                                logger.info(
+                                    "[stream_tokens] Final AIMessage: content_type=%s, content_preview=%s",
+                                    type(msg.content).__name__,
+                                    (
+                                        repr(msg.content)[:300]
+                                        if msg.content
+                                        else "EMPTY"
+                                    ),
+                                )
                                 if isinstance(msg.content, str):
                                     final_content = msg.content
                                 elif isinstance(msg.content, list):
-                                    # Handle multimodal responses
+                                    # Handle multimodal responses and Responses API format
                                     text_parts = []
                                     for part in msg.content:
-                                        if (
-                                            isinstance(part, dict)
-                                            and part.get("type") == "text"
-                                        ):
-                                            text_parts.append(part.get("text", ""))
+                                        if isinstance(part, dict):
+                                            # Responses API uses {"type": "text", "text": "..."}
+                                            # Also handle {"type": "output_text", "text": "..."}
+                                            part_type = part.get("type", "")
+                                            if part_type in ("text", "output_text"):
+                                                text_parts.append(part.get("text", ""))
                                         elif isinstance(part, str):
                                             text_parts.append(part)
                                     final_content = "".join(text_parts)
+                                    logger.info(
+                                        "[stream_tokens] Extracted final_content from list: len=%d",
+                                        len(final_content),
+                                    )
                                 break
 
                 elif kind == "on_tool_start":
