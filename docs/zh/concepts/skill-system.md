@@ -80,15 +80,22 @@ dependencies:
 
 | 字段 | 必需 | 描述 |
 |------|------|------|
-| `description` | 是 | LLM 决定何时加载的简短描述 |
-| `displayName` | 否 | UI 显示的人类可读名称 |
+| `description` | 是 | LLM 决定何时加载的简短描述（触发条件） |
+| `displayName` | 否 | 执行时显示的人类可读名称（如"正在渲染图表"） |
 | `version` | 否 | 语义化版本号 |
 | `author` | 否 | 作者名 |
 | `tags` | 否 | 分类标签 |
-| `bindShells` | 否 | 兼容的 Shell 类型（如 "Chat", "ClaudeCode"） |
+| `bindShells` | **关键** | 兼容的 Shell 类型：`ClaudeCode`, `Agno`, `Dify`, `Chat`。**如为空则不可用** |
 | `provider` | 否 | 动态工具的 Provider 配置 |
-| `tools` | 否 | 工具声明 |
+| `provider.module` | 否 | 模块名（默认 "provider"） |
+| `provider.class_name` | 是（如有 provider） | Provider 类名 |
+| `tools` | 否 | 工具声明列表 |
+| `tools[].name` | 是 | 工具名称 |
+| `tools[].provider` | 是 | Provider 标识符 |
+| `tools[].config` | 否 | 工具配置 |
 | `dependencies` | 否 | Python 模块依赖 |
+
+> ⚠️ **重要:** `bindShells` 字段是 **必需** 的，Skill 必须显式声明兼容的 Shell 类型才能被使用。如果 `bindShells` 为空或未指定，Skill 将不可用于任何 Shell 类型。
 
 ---
 

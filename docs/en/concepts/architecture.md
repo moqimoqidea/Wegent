@@ -44,6 +44,7 @@ graph TB
     subgraph "🤖 Agent Layer"
         Claude["🧠 Claude Code<br/>Coding Agent"]
         Agno["💻 Agno<br/>Chat Agent"]
+        Chat["💬 Chat Shell<br/>LangGraph Agent"]
         Dify["✨ Dify<br/>External API Agent"]
     end
 
@@ -82,7 +83,16 @@ graph TB
 | **Management Platform Layer** | User interaction, resource management, API services | Next.js 15, FastAPI, React 19 |
 | **Data Layer** | Data persistence, cache management | MySQL 9.4, Redis 7 |
 | **Execution Layer** | Task scheduling, container orchestration, resource isolation | Docker, Python |
-| **Agent Layer** | AI capabilities, code execution, chat processing, external API integration | Claude Code, Agno, Dify |
+| **Agent Layer** | AI capabilities, code execution, chat processing, external API integration | Claude Code, Agno, Chat Shell, Dify |
+
+### Shell Execution Types
+
+Wegent categorizes Shell types by their execution method:
+
+| Execution Type | Shell Types | Description |
+|----------------|-------------|-------------|
+| `local_engine` | ClaudeCode, Agno, Chat | Execute locally via Docker containers |
+| `external_api` | Dify | Proxy to external API services |
 
 ---
 
@@ -243,15 +253,20 @@ graph LR
 **Core Table Structure**:
 ```
 wegent_db/
-├── ghosts           # Ghost definitions
-├── models           # Model configurations
-├── shells           # Shell configurations
-├── bots             # Bot instances
-├── teams            # Team definitions
-├── workspaces       # Workspace configurations
-├── tasks            # Task records
+├── kinds            # CRD definitions (Ghost, Model, Shell, Bot, Team, Skill)
+├── tasks            # Task records (Task, Workspace resources)
+├── skill_binaries   # Skill ZIP package storage
 ├── users            # User information (with role field)
-└── public_models    # System-wide public models
+├── public_models    # System-wide public models
+├── public_shells    # System-wide public shells
+├── knowledge_documents  # Knowledge base documents (RAG)
+├── namespaces       # Groups/namespaces
+├── namespace_members    # Namespace membership
+├── shared_tasks     # Shared task resources
+├── shared_teams     # Shared team resources
+├── subtask_contexts     # Subtask context (knowledge, memory, files)
+├── api_keys         # API key management
+└── system_configs   # System configuration
 ```
 
 **Data Model Features**:

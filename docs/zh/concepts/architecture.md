@@ -44,6 +44,7 @@ graph TB
     subgraph "🤖 智能体层"
         Claude["🧠 Claude Code<br/>代码智能体"]
         Agno["💻 Agno<br/>对话智能体"]
+        Chat["💬 Chat Shell<br/>LangGraph 智能体"]
         Dify["✨ Dify<br/>外部 API 智能体"]
     end
 
@@ -82,7 +83,16 @@ graph TB
 | **管理平台层** | 用户交互、资源管理、API 服务 | Next.js 15, FastAPI, React 19 |
 | **数据层** | 数据持久化、缓存管理 | MySQL 9.4, Redis 7 |
 | **执行层** | 任务调度、容器编排、资源隔离 | Docker, Python |
-| **智能体层** | AI 能力提供、代码执行、对话处理、外部 API 集成 | Claude Code, Agno, Dify |
+| **智能体层** | AI 能力提供、代码执行、对话处理、外部 API 集成 | Claude Code, Agno, Chat Shell, Dify |
+
+### Shell 执行类型
+
+Wegent 根据执行方式对 Shell 类型进行分类：
+
+| 执行类型 | Shell 类型 | 说明 |
+|----------|------------|------|
+| `local_engine` | ClaudeCode, Agno, Chat | 通过 Docker 容器本地执行 |
+| `external_api` | Dify | 代理到外部 API 服务 |
 
 ---
 
@@ -243,15 +253,20 @@ graph LR
 **核心表结构**：
 ```
 wegent_db/
-├── ghosts           # Ghost 定义
-├── models           # Model 配置
-├── shells           # Shell 配置
-├── bots             # Bot 实例
-├── teams            # Team 定义
-├── workspaces       # Workspace 配置
-├── tasks            # Task 记录
+├── kinds            # CRD 定义（Ghost, Model, Shell, Bot, Team, Skill）
+├── tasks            # Task 记录（Task, Workspace 资源）
+├── skill_binaries   # Skill ZIP 包存储
 ├── users            # 用户信息（含角色字段）
-└── public_models    # 系统级公共模型
+├── public_models    # 系统级公共模型
+├── public_shells    # 系统级公共 Shell
+├── knowledge_documents  # 知识库文档（RAG）
+├── namespaces       # 群组/命名空间
+├── namespace_members    # 命名空间成员
+├── shared_tasks     # 共享任务资源
+├── shared_teams     # 共享 Team 资源
+├── subtask_contexts     # 子任务上下文（知识库、记忆、文件等）
+├── api_keys         # API 密钥管理
+└── system_configs   # 系统配置
 ```
 
 **数据模型特点**：

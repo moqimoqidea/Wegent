@@ -61,6 +61,22 @@ When binding models to Bots, the system resolves models in this order:
 1. User's private models (type='user')
 2. Public models (type='public')
 
+### Model Categories (modelType)
+
+Wegent supports multiple model categories beyond LLM:
+
+| Model Type | Description | Use Case |
+|------------|-------------|----------|
+| `llm` | Large Language Model (default) | Chat, code generation, reasoning |
+| `embedding` | Embedding Model | Text vectorization for RAG |
+
+### API Formats (apiFormat)
+
+| Format | Description | Recommended For |
+|--------|-------------|-----------------|
+| `chat/completions` | Traditional /v1/chat/completions API (default) | General use |
+| `responses` | New /v1/responses API | Agent scenarios (OpenAI only) |
+
 ---
 
 ## 📊 Model Selection Guide
@@ -965,6 +981,34 @@ spec:
 status:
   state: "Available"
 ```
+
+---
+
+### Example 6: Embedding Model Configuration
+
+Wegent supports embedding models for RAG knowledge base vectorization:
+
+```yaml
+apiVersion: agent.wecode.io/v1
+kind: Model
+metadata:
+  name: embedding-model
+  namespace: default
+spec:
+  modelType: embedding
+  embeddingConfig:
+    dimensions: 1536            # Vector dimensions
+    encoding_format: "float"    # Format: float, base64
+  modelConfig:
+    env:
+      OPENAI_API_KEY: "sk-your-api-key"
+      OPENAI_MODEL: "text-embedding-3-small"
+status:
+  state: "Available"
+```
+
+**Use Cases**:
+- **Embedding**: RAG knowledge base vectorization
 
 ---
 

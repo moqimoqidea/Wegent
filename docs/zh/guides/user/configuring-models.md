@@ -61,6 +61,22 @@ Wegent 支持两种类型的模型:
 1. 用户的私有模型 (type='user')
 2. 公共模型 (type='public')
 
+### 模型类别 (modelType)
+
+Wegent 支持多种模型类别，不仅限于 LLM:
+
+| 模型类型 | 说明 | 使用场景 |
+|---------|------|----------|
+| `llm` | 大语言模型（默认） | 聊天、代码生成、推理 |
+| `embedding` | 嵌入模型 | RAG 的文本向量化 |
+
+### API 格式 (apiFormat)
+
+| 格式 | 说明 | 推荐场景 |
+|------|------|----------|
+| `chat/completions` | 传统 /v1/chat/completions API（默认） | 通用场景 |
+| `responses` | 新的 /v1/responses API | Agent 场景（仅 OpenAI） |
+
 ---
 
 ## 📊 模型选择指南
@@ -965,6 +981,34 @@ spec:
 status:
   state: "Available"
 ```
+
+---
+
+### 示例 6: Embedding 模型配置
+
+Wegent 支持用于 RAG 知识库向量化的 Embedding 模型：
+
+```yaml
+apiVersion: agent.wecode.io/v1
+kind: Model
+metadata:
+  name: embedding-model
+  namespace: default
+spec:
+  modelType: embedding
+  embeddingConfig:
+    dimensions: 1536            # 向量维度
+    encoding_format: "float"    # 格式: float, base64
+  modelConfig:
+    env:
+      OPENAI_API_KEY: "sk-your-api-key"
+      OPENAI_MODEL: "text-embedding-3-small"
+status:
+  state: "Available"
+```
+
+**使用场景**：
+- **Embedding**: RAG 知识库向量化
 
 ---
 

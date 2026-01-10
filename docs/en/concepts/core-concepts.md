@@ -35,6 +35,9 @@ Wegent is built on Kubernetes-style declarative API and CRD (Custom Resource Def
 | 🤝 | **Collaboration** | Collaboration mode | Interaction pattern between Bots |
 | 💼 | **Workspace** | Work environment | Isolated code workspace |
 | 🎯 | **Task** | Task | Work unit assigned to a Team |
+| 📚 | **KnowledgeBase** | Knowledge repository | RAG document storage |
+| 🔍 | **Retriever** | Storage backend | Vector database configuration |
+| ⚡ | **Skill** | On-demand capability | Dynamically loaded tools |
 
 ---
 
@@ -74,6 +77,22 @@ status:
 
 Model defines AI model configuration, including environment variables and model parameters.
 
+### Model Types
+
+Wegent supports multiple model types for different AI capabilities:
+
+| Model Type | Description | Use Case |
+|------------|-------------|----------|
+| `llm` | Large Language Model (default) | Chat, code generation, reasoning |
+| `embedding` | Embedding Model | Text vectorization for RAG |
+
+### API Formats
+
+| Format | Description | Recommended For |
+|--------|-------------|-----------------|
+| `chat/completions` | Traditional chat API (default) | General use |
+| `responses` | New responses API | Agent scenarios (OpenAI only) |
+
 ### YAML Configuration Example
 
 ```yaml
@@ -83,6 +102,10 @@ metadata:
   name: claude-model
   namespace: default
 spec:
+  modelType: llm                        # Model type (default: llm)
+  apiFormat: chat/completions           # API format (default: chat/completions)
+  contextWindow: 200000                 # Max context window size
+  maxOutputTokens: 8192                 # Max output tokens
   modelConfig:
     env:
       ANTHROPIC_MODEL: "openrouter,anthropic/claude-sonnet-4"
@@ -93,11 +116,38 @@ status:
   state: "Available"
 ```
 
+### Specialized Model Examples
+
+```yaml
+# Embedding Model Configuration
+apiVersion: agent.wecode.io/v1
+kind: Model
+metadata:
+  name: embedding-model
+spec:
+  modelType: embedding
+  embeddingConfig:
+    dimensions: 1536
+    encoding_format: "float"
+  modelConfig:
+    env:
+      OPENAI_API_KEY: "sk-xxx"
+```
+
 ---
 
 ## 🐚 Shell - Runtime Environment
 
 Shell is the container where agents run, specifying the runtime environment.
+
+### Shell Types
+
+| Type | Execution | Description |
+|------|-----------|-------------|
+| `ClaudeCode` | local_engine | Claude Code SDK, supports code execution |
+| `Agno` | local_engine | Agno framework, team collaboration |
+| `Chat` | local_engine | Lightweight chat Shell, LangGraph architecture |
+| `Dify` | external_api | External Dify API proxy |
 
 ### YAML Configuration Example
 
@@ -107,6 +157,8 @@ kind: Shell
 metadata:
   name: claude-shell
   namespace: default
+  labels:
+    type: "local_engine"               # Execution type label
 spec:
   runtime: "ClaudeCode"
   supportModel:
@@ -306,6 +358,108 @@ graph LR
 - [Collaboration Models](./collaboration-models.md) - Detailed explanation of collaboration patterns
 - [Creating Bots](../guides/user/creating-bots.md) - How to create and configure Bots
 - [Creating Teams](../guides/user/creating-teams.md) - How to build collaborative teams
+- [Skill System](./skill-system.md) - On-demand capabilities and tools
+
+---
+
+## 📚 KnowledgeBase - Document Storage for RAG
+
+KnowledgeBase is a CRD that manages document collections for Retrieval-Augmented Generation (RAG).
+
+### YAML Configuration Example
+
+```yaml
+apiVersion: agent.wecode.io/v1
+kind: KnowledgeBase
+metadata:
+  name: my-knowledge-base
+  namespace: default
+spec:
+  name: "Project Documentation"
+  description: "Technical documentation for the project"
+  document_count: 0                     # Cached document count
+  retrievalConfig:
+    retriever_name: my-retriever        # Retriever reference
+    retriever_namespace: default
+    embedding_config:
+      model_name: text-embedding-3-small
+      model_namespace: default
+    retrieval_mode: hybrid              # vector | keyword | hybrid
+    top_k: 5                            # Results to return (1-10)
+    score_threshold: 0.7                # Score threshold (0.0-1.0)
+    hybrid_weights:
+      vector_weight: 0.7
+      keyword_weight: 0.3
+status:
+  state: "Available"
+```
+
+### Key Features
+
+- **Document Management**: Upload, index, and manage documents
+- **Multiple Retrieval Modes**: Vector, keyword, or hybrid search
+- **Embedding Integration**: Configure embedding models for vectorization
+- **Configurable Weights**: Fine-tune hybrid search balance
+
+---
+
+## 🔍 Retriever - Vector Storage Backend
+
+Retriever is a CRD that configures the vector storage backend for RAG functionality.
+
+### Supported Storage Types
+
+| Type | Description |
+|------|-------------|
+| `elasticsearch` | Elasticsearch with dense vectors |
+| `qdrant` | Qdrant vector database |
+
+### Index Strategies
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `fixed` | Single fixed index | Small datasets |
+| `rolling` | Hash-based sharding | Large datasets |
+| `per_dataset` | One index per knowledge base | Multi-tenant isolation |
+| `per_user` | One index per user | User-level isolation |
+
+### YAML Configuration Example
+
+```yaml
+apiVersion: agent.wecode.io/v1
+kind: Retriever
+metadata:
+  name: my-retriever
+  namespace: default
+spec:
+  storageConfig:
+    type: elasticsearch                 # elasticsearch | qdrant
+    url: "http://elasticsearch:9200"
+    username: "elastic"
+    password: "password"                # Optional
+    apiKey: "api-key"                   # Optional
+    indexStrategy:
+      mode: per_user                    # Index strategy
+      prefix: "wegent"                  # Index prefix
+  retrievalMethods:
+    vector:
+      enabled: true
+      defaultWeight: 0.7
+    keyword:
+      enabled: true
+      defaultWeight: 0.3
+    hybrid:
+      enabled: true
+  description: "Elasticsearch retriever for RAG"
+status:
+  state: "Available"
+```
+
+### Best Practices
+
+- Use `per_user` mode for Elasticsearch deployments
+- Enable hybrid search for better retrieval quality
+- Set appropriate score thresholds to filter irrelevant results
 
 ---
 

@@ -81,15 +81,22 @@ when the skill is loaded by the LLM...
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `description` | Yes | Brief description for LLM to decide when to load |
-| `displayName` | No | Human-readable name for UI display |
+| `description` | Yes | Brief description for LLM to decide when to load (trigger condition) |
+| `displayName` | No | Human-readable name shown during execution (e.g., "Rendering diagram") |
 | `version` | No | Semantic version number |
 | `author` | No | Author name |
 | `tags` | No | Tags for categorization |
-| `bindShells` | No | Compatible Shell types (e.g., "Chat", "ClaudeCode") |
+| `bindShells` | **Critical** | Compatible Shell types: `ClaudeCode`, `Agno`, `Dify`, `Chat`. **If empty, Skill is unusable** |
 | `provider` | No | Provider configuration for dynamic tools |
+| `provider.module` | No | Module name (default "provider") |
+| `provider.class_name` | Yes (if provider) | Provider class name |
 | `tools` | No | Tool declarations |
+| `tools[].name` | Yes | Tool name |
+| `tools[].provider` | Yes | Provider identifier |
+| `tools[].config` | No | Tool configuration |
 | `dependencies` | No | Python module dependencies |
+
+> ⚠️ **Important:** The `bindShells` field is **required** for Skills to be usable. Skills must explicitly declare compatible Shell types. If `bindShells` is empty or not specified, the Skill will not be available for any Shell type.
 
 ---
 

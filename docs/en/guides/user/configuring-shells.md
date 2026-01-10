@@ -66,7 +66,14 @@ Shells provide Bots with the following core capabilities:
 
 ## 📊 Runtime Selection Guide
 
-Wegent currently supports three main runtimes:
+Wegent currently supports four main runtimes:
+
+### Shell Execution Types
+
+| Execution Type | Shell Types | Description |
+|----------------|-------------|-------------|
+| `local_engine` | ClaudeCode, Agno, Chat | Execute locally via Docker containers |
+| `external_api` | Dify | Proxy to external API services |
 
 ### ClaudeCode Runtime (Recommended)
 
@@ -84,6 +91,25 @@ Wegent currently supports three main runtimes:
 - ✅ Mature and stable
 
 **Recommended for**: Most development tasks
+
+### Chat Runtime (New)
+
+**Use Cases**:
+- Lightweight chat interactions
+- Web search enabled conversations
+- RAG knowledge retrieval
+- Tasks requiring dynamic skill loading
+
+**Features**:
+- ✅ Based on LangGraph Agent framework
+- ✅ Built-in file skills (FileReaderSkill, FileListSkill)
+- ✅ Web search tool (configurable)
+- ✅ Dynamic Skill loading
+- ✅ MCP protocol support
+- ✅ Message compression (token counting)
+- ✅ Streaming and non-streaming modes
+
+**Recommended for**: Chat-focused tasks, RAG applications
 
 ### Agno Runtime (Experimental)
 
@@ -123,15 +149,18 @@ Wegent currently supports three main runtimes:
 
 ### Decision Table
 
-| Feature | ClaudeCode | Agno | Dify |
-|---------|------------|------|------|
-| **Stability** | ⭐⭐⭐⭐⭐ Mature | ⭐⭐⭐ Experimental | ⭐⭐⭐⭐ Stable |
-| **Code Development** | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐ Basic | ⭐⭐ Limited |
-| **Tool Invocation** | ⭐⭐⭐⭐⭐ Complete | ⭐⭐⭐ Partial | ⭐⭐⭐ Via Dify |
-| **Git Integration** | ⭐⭐⭐⭐⭐ Complete | ⭐⭐ Limited | ❌ None |
-| **Workflow Support** | ⭐⭐ Basic | ⭐⭐ Basic | ⭐⭐⭐⭐⭐ Excellent |
-| **Learning Curve** | ⭐⭐⭐⭐ Simple | ⭐⭐ Complex | ⭐⭐⭐⭐ Simple |
-| **Recommendation** | ✅ Development | ⚠️ Advanced | ✅ Workflows |
+| Feature | ClaudeCode | Chat | Agno | Dify |
+|---------|------------|------|------|------|
+| **Stability** | ⭐⭐⭐⭐⭐ Mature | ⭐⭐⭐⭐ Stable | ⭐⭐⭐ Experimental | ⭐⭐⭐⭐ Stable |
+| **Code Development** | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐ Basic | ⭐⭐ Basic | ⭐⭐ Limited |
+| **Tool Invocation** | ⭐⭐⭐⭐⭐ Complete | ⭐⭐⭐⭐ Good | ⭐⭐⭐ Partial | ⭐⭐⭐ Via Dify |
+| **Git Integration** | ⭐⭐⭐⭐⭐ Complete | ❌ None | ⭐⭐ Limited | ❌ None |
+| **Web Search** | ❌ None | ⭐⭐⭐⭐⭐ Built-in | ❌ None | ⭐⭐⭐ Via Dify |
+| **RAG Support** | ⭐⭐ Basic | ⭐⭐⭐⭐⭐ Native | ⭐⭐ Basic | ⭐⭐⭐⭐ Good |
+| **Skill System** | ⭐⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Native | ⭐⭐⭐ Partial | ❌ None |
+| **Workflow Support** | ⭐⭐ Basic | ⭐⭐ Basic | ⭐⭐ Basic | ⭐⭐⭐⭐⭐ Excellent |
+| **Learning Curve** | ⭐⭐⭐⭐ Simple | ⭐⭐⭐⭐ Simple | ⭐⭐ Complex | ⭐⭐⭐⭐ Simple |
+| **Recommendation** | ✅ Development | ✅ Chat/RAG | ⚠️ Advanced | ✅ Workflows |
 
 ---
 
@@ -152,7 +181,20 @@ Wegent comes with the following preset Shells that can be used immediately:
 - Code refactoring
 - Documentation writing
 
-### 2. Agno
+### 2. Chat
+
+**Name**: `Chat`
+**Runtime**: `Chat`
+**Status**: ✅ Available
+**Namespace**: `default`
+
+**Recommended Scenarios**:
+- Conversational interactions with web search
+- RAG-enabled knowledge retrieval
+- Lightweight chat tasks
+- Tasks requiring dynamic skill loading
+
+### 3. Agno
 
 **Name**: `Agno`
 **Runtime**: `Agno`
@@ -164,7 +206,7 @@ Wegent comes with the following preset Shells that can be used immediately:
 - Experimental features
 - Special requirements
 
-### 3. Dify
+### 4. Dify
 
 **Name**: `Dify`
 **Runtime**: `Dify`

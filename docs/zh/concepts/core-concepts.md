@@ -35,6 +35,9 @@ Wegent 基于 Kubernetes 风格的声明式 API 和 CRD (Custom Resource Definit
 | 🤝 | **Collaboration** | 协作模式 | 协作模式 | Bot 之间的交互模式 |
 | 💼 | **Workspace** | 工作空间 | 工作环境 | 隔离的代码工作空间 |
 | 🎯 | **Task** | 任务 | 任务 | 分配给 Team(智能体) 的工作单元 |
+| 📚 | **KnowledgeBase** | 知识库 | 文档存储 | RAG 检索增强生成 |
+| 🔍 | **Retriever** | 检索器 | 存储后端 | 向量数据库配置 |
+| ⚡ | **Skill** | 技能 | 按需能力 | 动态加载的工具 |
 
 ---
 
@@ -94,6 +97,22 @@ Model 定义了 AI 模型的配置,包括环境变量、模型参数等。
 - **环境变量**: API 密钥、模型名称、基础 URL 等
 - **模型参数**: 温度、最大 Token 数等配置
 
+### 模型类型
+
+Wegent 支持多种模型类型以满足不同的 AI 能力需求：
+
+| 模型类型 | 说明 | 使用场景 |
+|---------|------|----------|
+| `llm` | 大语言模型（默认） | 聊天、代码生成、推理 |
+| `embedding` | 嵌入模型 | RAG 的文本向量化 |
+
+### API 格式
+
+| 格式 | 说明 | 推荐场景 |
+|------|------|----------|
+| `chat/completions` | 传统聊天 API（默认） | 通用场景 |
+| `responses` | 新的 responses API | Agent 场景（仅 OpenAI） |
+
 ### YAML 配置示例
 
 ```yaml
@@ -103,6 +122,10 @@ metadata:
   name: claude-model
   namespace: default
 spec:
+  modelType: llm                        # 模型类型（默认: llm）
+  apiFormat: chat/completions           # API 格式（默认: chat/completions）
+  contextWindow: 200000                 # 最大上下文窗口大小
+  maxOutputTokens: 8192                 # 最大输出 token 数
   modelConfig:
     env:
       ANTHROPIC_MODEL: "openrouter,anthropic/claude-sonnet-4"
@@ -111,6 +134,24 @@ spec:
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "openrouter,anthropic/claude-haiku-4.5"
 status:
   state: "Available"
+```
+
+### 专用模型配置示例
+
+```yaml
+# Embedding 模型配置
+apiVersion: agent.wecode.io/v1
+kind: Model
+metadata:
+  name: embedding-model
+spec:
+  modelType: embedding
+  embeddingConfig:
+    dimensions: 1536
+    encoding_format: "float"
+  modelConfig:
+    env:
+      OPENAI_API_KEY: "sk-xxx"
 ```
 
 ### 支持的模型类型
@@ -125,9 +166,18 @@ status:
 
 Shell 是智能体运行的容器,指定了运行时环境和支持的模型类型。
 
+### Shell 类型
+
+| 类型 | 执行方式 | 说明 |
+|------|----------|------|
+| `ClaudeCode` | local_engine | Claude Code SDK，支持代码执行 |
+| `Agno` | local_engine | Agno 框架，团队协作 |
+| `Chat` | local_engine | 轻量级聊天 Shell，基于 LangGraph 架构 |
+| `Dify` | external_api | 外部 Dify API 代理 |
+
 ### 核心特性
 
-- **运行时类型**: ClaudeCode、Agno 等
+- **运行时类型**: ClaudeCode、Agno、Chat、Dify 等
 - **支持的模型**: 指定兼容的模型类型
 
 ### YAML 配置示例
@@ -138,6 +188,8 @@ kind: Shell
 metadata:
   name: claude-shell
   namespace: default
+  labels:
+    type: "local_engine"               # 执行类型标签
 spec:
   runtime: "ClaudeCode"
   supportModel:
@@ -151,6 +203,8 @@ status:
 
 - **ClaudeCode**: 基于 Claude Agent SDK 的代码智能体
 - **Agno**: 基于 Agno 框架的对话智能体 (实验性)
+- **Chat**: 轻量级聊天智能体，基于 LangGraph，支持 MCP 和 Skill
+- **Dify**: 外部 Dify API 集成
 
 ---
 
@@ -423,6 +477,108 @@ graph LR
 - [协作模式详解](./collaboration-models.md) - 四种协作模式的详细说明
 - [创建 Bot 指南](../guides/user/creating-bots.md) - 如何创建和配置 Bot
 - [创建 Team 指南](../guides/user/creating-teams.md) - 如何构建协作团队
+- [Skill 系统](./skill-system.md) - 按需能力和工具
+
+---
+
+## 📚 KnowledgeBase - RAG 文档存储
+
+KnowledgeBase 是管理检索增强生成 (RAG) 文档集合的 CRD。
+
+### YAML 配置示例
+
+```yaml
+apiVersion: agent.wecode.io/v1
+kind: KnowledgeBase
+metadata:
+  name: my-knowledge-base
+  namespace: default
+spec:
+  name: "项目文档"
+  description: "项目的技术文档"
+  document_count: 0                     # 缓存的文档数量
+  retrievalConfig:
+    retriever_name: my-retriever        # Retriever 引用
+    retriever_namespace: default
+    embedding_config:
+      model_name: text-embedding-3-small
+      model_namespace: default
+    retrieval_mode: hybrid              # vector | keyword | hybrid
+    top_k: 5                            # 返回结果数 (1-10)
+    score_threshold: 0.7                # 分数阈值 (0.0-1.0)
+    hybrid_weights:
+      vector_weight: 0.7
+      keyword_weight: 0.3
+status:
+  state: "Available"
+```
+
+### 主要功能
+
+- **文档管理**: 上传、索引和管理文档
+- **多种检索模式**: 向量、关键词或混合搜索
+- **嵌入集成**: 配置嵌入模型进行向量化
+- **可配置权重**: 微调混合搜索平衡
+
+---
+
+## 🔍 Retriever - 向量存储后端
+
+Retriever 是配置 RAG 功能向量存储后端的 CRD。
+
+### 支持的存储类型
+
+| 类型 | 说明 |
+|------|------|
+| `elasticsearch` | 带密集向量的 Elasticsearch |
+| `qdrant` | Qdrant 向量数据库 |
+
+### 索引策略
+
+| 策略 | 说明 | 使用场景 |
+|------|------|----------|
+| `fixed` | 单个固定索引 | 小型数据集 |
+| `rolling` | 基于哈希的分片 | 大型数据集 |
+| `per_dataset` | 每个知识库一个索引 | 多租户隔离 |
+| `per_user` | 每个用户一个索引 | 用户级隔离 |
+
+### YAML 配置示例
+
+```yaml
+apiVersion: agent.wecode.io/v1
+kind: Retriever
+metadata:
+  name: my-retriever
+  namespace: default
+spec:
+  storageConfig:
+    type: elasticsearch                 # elasticsearch | qdrant
+    url: "http://elasticsearch:9200"
+    username: "elastic"
+    password: "password"                # 可选
+    apiKey: "api-key"                   # 可选
+    indexStrategy:
+      mode: per_user                    # 索引策略
+      prefix: "wegent"                  # 索引前缀
+  retrievalMethods:
+    vector:
+      enabled: true
+      defaultWeight: 0.7
+    keyword:
+      enabled: true
+      defaultWeight: 0.3
+    hybrid:
+      enabled: true
+  description: "用于 RAG 的 Elasticsearch 检索器"
+status:
+  state: "Available"
+```
+
+### 最佳实践
+
+- Elasticsearch 部署使用 `per_user` 模式
+- 启用混合搜索以获得更好的检索质量
+- 设置适当的分数阈值以过滤不相关结果
 
 ---
 
