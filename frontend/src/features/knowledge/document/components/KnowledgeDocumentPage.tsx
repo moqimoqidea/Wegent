@@ -607,6 +607,7 @@ function PersonalKnowledgeContent({
             <Card
               padding="lg"
               className="hover:bg-hover transition-colors cursor-pointer flex flex-col items-center justify-center w-64 h-48"
+              data-testid="create-kb-card"
             >
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <Plus className="w-8 h-8 text-primary" />
@@ -623,6 +624,7 @@ function PersonalKnowledgeContent({
             <DropdownMenuItem
               onClick={() => onCreateKb('notebook')}
               className="flex items-start gap-3 py-3"
+              data-testid="kb-type-notebook"
             >
               <BookOpen className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
               <div>
@@ -637,6 +639,7 @@ function PersonalKnowledgeContent({
             <DropdownMenuItem
               onClick={() => onCreateKb('classic')}
               className="flex items-start gap-3 py-3"
+              data-testid="kb-type-classic"
             >
               <FolderOpen className="w-5 h-5 text-text-secondary mt-0.5 flex-shrink-0" />
               <div>
