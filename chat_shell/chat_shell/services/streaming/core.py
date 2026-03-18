@@ -406,11 +406,16 @@ class StreamingCore:
         )
 
         # Emit done event via ResponsesAPIEmitter
+        # Pass all result fields through extra_fields so they are included
+        # in the response.completed event and persisted to the DB.
         await self.emitter.done(
             content=result.get("value", ""),
             sources=result.get("sources"),
             silent_exit=result.get("silent_exit"),
             silent_exit_reason=result.get("silent_exit_reason"),
+            loaded_skills=result.get("loaded_skills"),
+            messages_chain=result.get("messages_chain"),
+            reasoning_content=result.get("reasoning_content"),
         )
 
         return result

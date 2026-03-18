@@ -155,6 +155,8 @@ class EmitterBridgeTransport(EventTransport):
                     "silent_exit_reason": response_data.get("silent_exit_reason"),
                     "loaded_skills": response_data.get("loaded_skills"),
                     "stop_reason": response_data.get("stop_reason"),
+                    "messages_chain": response_data.get("messages_chain"),
+                    "reasoning_content": response_data.get("reasoning_content"),
                 },
                 message_id=message_id,
             )
