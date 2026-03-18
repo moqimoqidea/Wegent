@@ -180,10 +180,14 @@ def parse_session_id(session_id: str) -> tuple[str, int]:
     return session_type, session_id_int
 
 
-def subtask_to_message(
+def subtask_to_messages(
     subtask: Subtask, db: Session, is_group_chat: bool = False
-) -> MessageResponse:
-    """Convert Subtask ORM object to MessageResponse with full context loading.
+) -> list[MessageResponse]:
+    """Convert Subtask ORM object to a list of MessageResponse objects.
+
+    Returns a list because a single assistant subtask may expand into multiple
+    messages when ``messages_chain`` is present (intermediate tool call / tool
+    result messages from a single agent turn).
 
     For user messages, this function:
     1. Loads all contexts (attachments and knowledge_base) in one query
@@ -194,10 +198,6 @@ def subtask_to_message(
     For assistant messages, this function also extracts:
     - loaded_skills: List of skills loaded via load_skill tool in this turn
     """
-    role = "user" if subtask.role == SubtaskRole.USER else "assistant"
-    loaded_skills = None
-
-    # Extract content based on role
     if subtask.role == SubtaskRole.USER:
         # Get sender username for group chat
         sender_username = None
@@ -210,22 +210,56 @@ def subtask_to_message(
         content = _build_user_message_content(
             db, subtask, sender_username, is_group_chat
         )
-    else:
-        # For assistant, content is in result.value
-        if subtask.result and isinstance(subtask.result, dict):
-            content = subtask.result.get("value", "")
-            # Extract loaded_skills for skill state restoration across conversation turns
-            loaded_skills = subtask.result.get("loaded_skills")
-        else:
-            content = ""
+        return [
+            MessageResponse(
+                id=str(subtask.id),
+                role="user",
+                content=content,
+                created_at=(
+                    subtask.created_at.isoformat() if subtask.created_at else None
+                ),
+            )
+        ]
 
-    return MessageResponse(
-        id=str(subtask.id),
-        role=role,
-        content=content,
-        created_at=subtask.created_at.isoformat() if subtask.created_at else None,
-        loaded_skills=loaded_skills,
-    )
+    # Assistant messages ---------------------------------------------------
+    result = subtask.result if isinstance(subtask.result, dict) else {}
+    created_at = subtask.created_at.isoformat() if subtask.created_at else None
+
+    # If messages_chain is available, expand to individual MessageResponse objects
+    messages_chain = result.get("messages_chain")
+    if messages_chain and isinstance(messages_chain, list):
+        loaded_skills = result.get("loaded_skills")
+        responses: list[MessageResponse] = []
+        for idx, msg in enumerate(messages_chain):
+            msg_id = f"{subtask.id}-{idx}"
+            role = msg.get("role", "assistant")
+            resp = MessageResponse(
+                id=msg_id,
+                role=role,
+                content=msg.get("content", ""),
+                name=msg.get("name"),
+                tool_call_id=msg.get("tool_call_id"),
+                tool_calls=msg.get("tool_calls"),
+                created_at=created_at,
+            )
+            # Attach loaded_skills to the last assistant message
+            if loaded_skills and role == "assistant" and idx == len(messages_chain) - 1:
+                resp.loaded_skills = loaded_skills
+            responses.append(resp)
+        return responses
+
+    # Fallback for legacy data without messages_chain
+    content = result.get("value", "")
+    loaded_skills = result.get("loaded_skills")
+    return [
+        MessageResponse(
+            id=str(subtask.id),
+            role="assistant",
+            content=content,
+            created_at=created_at,
+            loaded_skills=loaded_skills,
+        )
+    ]
 
 
 def _build_user_message_content(
@@ -674,7 +708,9 @@ async def get_chat_history(
         subtasks = query.order_by(Subtask.message_id.asc()).all()
 
     # Convert to message format with full context loading
-    messages = [subtask_to_message(st, db, is_group_chat) for st in subtasks]
+    messages = [
+        msg for st in subtasks for msg in subtask_to_messages(st, db, is_group_chat)
+    ]
 
     logger.debug(
         "get_chat_history: session_id=%s, count=%d, is_group_chat=%s, limit=%s",

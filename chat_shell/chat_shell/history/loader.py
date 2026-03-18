@@ -324,22 +324,25 @@ def _load_history_from_db_sync(
             subtasks = query.order_by(Subtask.message_id.asc()).all()
 
         for subtask, sender_username in subtasks:
-            msg = _build_history_message(db, subtask, sender_username, is_group_chat)
-            if msg:
-                history.append(msg)
+            msgs = _build_history_messages(db, subtask, sender_username, is_group_chat)
+            history.extend(msgs)
     finally:
         db.close()
 
     return history
 
 
-def _build_history_message(
+def _build_history_messages(
     db,
     subtask,
     sender_username: str | None,
     is_group_chat: bool = False,
-) -> dict[str, Any] | None:
-    """Build a single history message from a subtask.
+) -> list[dict[str, Any]]:
+    """Build history messages from a subtask.
+
+    Returns a list of message dicts because a single assistant subtask may
+    expand into multiple messages when it contains a ``messages_chain``
+    (intermediate tool call / tool result messages).
 
     For user messages, this function:
     1. Loads all contexts (attachments and knowledge_base) in one query
@@ -371,7 +374,7 @@ def _build_history_message(
         )
 
         if not all_contexts:
-            return {"role": "user", "content": text_content}
+            return [{"role": "user", "content": text_content}]
 
         # Separate contexts by type
         attachments = [
@@ -484,29 +487,46 @@ def _build_history_message(
                 text_content = (
                     f"<attachment>\n{headers_text}\n</attachment>\n\n{text_content}"
                 )
-            return {
-                "role": "user",
-                "content": [{"type": "text", "text": text_content}, *vision_parts],
-            }
-        return {"role": "user", "content": text_content}
+            return [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": text_content}, *vision_parts],
+                }
+            ]
+        return [{"role": "user", "content": text_content}]
 
     elif subtask.role == SubtaskRole.ASSISTANT:
         if not subtask.result or not isinstance(subtask.result, dict):
-            return None
+            return []
+
+        # If messages_chain is available, use it to reconstruct the full
+        # conversation turn (tool calls, tool results, and final response).
+        messages_chain = subtask.result.get("messages_chain")
+        if messages_chain and isinstance(messages_chain, list):
+            # Attach loaded_skills to the last assistant message in the chain
+            loaded_skills = subtask.result.get("loaded_skills")
+            if loaded_skills:
+                for msg in reversed(messages_chain):
+                    if msg.get("role") == "assistant":
+                        msg["loaded_skills"] = loaded_skills
+                        break
+            return messages_chain
+
+        # Fallback for legacy data without messages_chain
         content = subtask.result.get("value", "")
         if not content:
-            return None
+            return []
 
-        msg = {"role": "assistant", "content": content}
+        msg: dict[str, Any] = {"role": "assistant", "content": content}
 
         # Include loaded_skills for skill state restoration across conversation turns
         loaded_skills = subtask.result.get("loaded_skills")
         if loaded_skills:
             msg["loaded_skills"] = loaded_skills
 
-        return msg
+        return [msg]
 
-    return None
+    return []
 
 
 def _build_vision_content_block(context) -> dict[str, Any] | None:

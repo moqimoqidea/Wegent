@@ -337,6 +337,11 @@ class ChatService(ChatInterface):
                 state.is_silent_exit = True
                 state.silent_exit_reason = e.reason
 
+            # Transfer messages chain from agent builder to streaming state
+            messages_chain = getattr(agent_builder, "_last_messages_chain", None)
+            if messages_chain:
+                state.messages_chain = messages_chain
+
             # Finalize if not cancelled
             if not core.is_cancelled():
                 add_span_event("finalizing", {"total_tokens": token_count})
