@@ -18,8 +18,8 @@ from typing import Any
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 
+from chat_shell.models.reasoning_openai import ReasoningAwareChatOpenAI
 from shared.telemetry.decorators import add_span_event, trace_sync
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ class LangChainModelFactory:
     # Provider-specific model classes and their parameter mappings
     _PROVIDER_CONFIG = {
         "openai": {
-            "class": ChatOpenAI,
+            "class": ReasoningAwareChatOpenAI,
             "params": lambda cfg, kw: {
                 "model": cfg["model_id"],
                 "api_key": cfg["api_key"],

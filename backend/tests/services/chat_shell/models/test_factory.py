@@ -5,9 +5,9 @@
 import pytest
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 
 from chat_shell.models.factory import LangChainModelFactory
+from chat_shell.models.reasoning_openai import ReasoningAwareChatOpenAI
 
 
 @pytest.mark.asyncio
@@ -23,7 +23,7 @@ async def test_create_openai_model():
 
     model = LangChainModelFactory.create_from_config(config, temperature=0.7)
 
-    assert isinstance(model, ChatOpenAI)
+    assert isinstance(model, ReasoningAwareChatOpenAI)
     assert model.model_name == "gpt-4"
     assert model.openai_api_key.get_secret_value() == "sk-test"
     assert model.openai_api_base == "https://api.openai.com/v1"
@@ -90,7 +90,7 @@ def test_create_from_name():
         api_key="sk-test",
     )
 
-    assert isinstance(model, ChatOpenAI)
+    assert isinstance(model, ReasoningAwareChatOpenAI)
     assert model.model_name == "gpt-4o"
 
 
@@ -105,7 +105,7 @@ def test_create_openai_model_with_responses_api():
 
     model = LangChainModelFactory.create_from_config(config)
 
-    assert isinstance(model, ChatOpenAI)
+    assert isinstance(model, ReasoningAwareChatOpenAI)
     assert model.model_name == "gpt-5.2"
     # Verify use_responses_api is enabled
     assert model.use_responses_api is True
@@ -125,7 +125,7 @@ def test_create_openai_model_without_responses_api():
 
     model = LangChainModelFactory.create_from_config(config)
 
-    assert isinstance(model, ChatOpenAI)
+    assert isinstance(model, ReasoningAwareChatOpenAI)
     assert model.model_name == "gpt-4o"
     # Verify use_responses_api is not set (None or False)
     assert model.use_responses_api is None or model.use_responses_api is False
