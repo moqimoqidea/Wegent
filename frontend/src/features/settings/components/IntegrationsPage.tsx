@@ -6,6 +6,7 @@
 
 import { useTranslation } from '@/hooks/useTranslation'
 import GitHubIntegration from './GitHubIntegration'
+import McpProviderIntegrations from './McpProviderIntegrations'
 
 export default function IntegrationsPage() {
   const { t } = useTranslation()
@@ -23,7 +24,7 @@ export default function IntegrationsPage() {
       {/* Git integration section */}
       <GitHubIntegration />
 
-      {/* Future: more integration sections here */}
+      <McpProviderIntegrations providerId="dingtalk" />
     </div>
   )
 }
