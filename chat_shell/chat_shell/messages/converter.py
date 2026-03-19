@@ -149,19 +149,15 @@ class MessageConverter:
             Message dict in LangChain/Chat Completions format
         """
         langchain_content: list[dict[str, Any]] = []
-        first_text_processed = False
 
         for block in content_blocks:
             block_type = block.get("type", "")
 
             if block_type == "input_text":
-                # Convert input_text to text
-                text = block.get("text", "")
-                if not first_text_processed:
-                    if username:
-                        text = f"User[{username}]: {text}"
-                    first_text_processed = True
-                langchain_content.append({"type": "text", "text": text})
+                # Convert input_text → text.  Username prefix is applied after
+                # the loop to the LAST text block, which is always the user's
+                # own message (attachment metadata occupies earlier blocks).
+                langchain_content.append({"type": "text", "text": block.get("text", "")})
 
             elif block_type == "input_image":
                 # Convert input_image to image_url
@@ -192,6 +188,17 @@ class MessageConverter:
                     langchain_content.append(
                         {"type": "image_url", "image_url": {"url": image_url}}
                     )
+
+        # Apply username prefix to the LAST text block, which is always the user's
+        # own message.  Attachment metadata occupies the first text block(s) and
+        # must not be prefixed.
+        if username:
+            for i in range(len(langchain_content) - 1, -1, -1):
+                if langchain_content[i].get("type") == "text":
+                    langchain_content[i]["text"] = (
+                        f"User[{username}]: {langchain_content[i]['text']}"
+                    )
+                    break
 
         # Append the system-remember time block at the end (after all content blocks).
         # This keeps the user's text and images as the stable prefix, and the time
