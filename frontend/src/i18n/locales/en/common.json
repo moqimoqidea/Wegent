@@ -363,7 +363,7 @@
     "bind_mode": "Bind Mode",
     "bind_mode_chat": "Chat",
     "bind_mode_code": "Code",
-    "bind_mode_task": "Task",
+    "bind_mode_task": "Device",
     "bind_mode_video": "Video",
     "bind_mode_image": "Image",
     "bind_mode_required": "Please select at least one bind mode",
