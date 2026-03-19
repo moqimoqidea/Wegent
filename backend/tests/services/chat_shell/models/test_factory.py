@@ -45,6 +45,7 @@ async def test_create_anthropic_model():
     assert isinstance(model, ChatAnthropic)
     assert model.model == "claude-3-sonnet-20240229"
     assert model.anthropic_api_key.get_secret_value() == "sk-ant-test"
+    assert model.model_kwargs.get("cache_control") == {"type": "ephemeral"}
 
 
 @pytest.mark.asyncio
