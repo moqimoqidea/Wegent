@@ -302,7 +302,9 @@ export function GroupMembersDialog({
                   onValueChange={(value: GroupRole) => setSelectedRole(value)}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={t(`groups:groups.roles.${selectedRole}`)}>
+                      {t(`groups:groups.roles.${selectedRole}`)}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {myRole === 'Owner' && (
@@ -489,10 +491,10 @@ export function GroupMembersDialog({
                                 handleUpdateRole(member.user_id, value)
                               }
                             >
-                              <SelectTrigger className="w-[140px]">
-                                <Badge variant={getRoleBadgeVariant(member.role)}>
+                              <SelectTrigger className="h-8 w-[180px]">
+                                <SelectValue placeholder={t(`groups:groups.roles.${member.role}`)}>
                                   {t(`groups:groups.roles.${member.role}`)}
-                                </Badge>
+                                </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 {myRole === 'Owner' && (
