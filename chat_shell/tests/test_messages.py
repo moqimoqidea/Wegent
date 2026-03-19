@@ -38,7 +38,7 @@ class TestMessageConverterBuildMessages:
         assert messages[1]["content"] == "Hello"
 
     def test_build_messages_with_datetime_injection(self):
-        """Test datetime is injected when inject_datetime=True."""
+        """Test datetime is injected as a system-remember block when inject_datetime=True."""
         messages = MessageConverter.build_messages(
             history=[],
             current_message="Hello",
@@ -48,9 +48,17 @@ class TestMessageConverterBuildMessages:
 
         user_msg = messages[-1]
         assert user_msg["role"] == "user"
-        assert "[Current time:" in user_msg["content"]
-        # Verify the datetime format
-        assert datetime.now().strftime("%Y-%m-%d") in user_msg["content"]
+        # Content should now be a list of two blocks
+        assert isinstance(user_msg["content"], list)
+        assert len(user_msg["content"]) == 2
+        # First block: plain user text
+        assert user_msg["content"][0] == {"type": "text", "text": "Hello"}
+        # Second block: system-remember with current time
+        system_block = user_msg["content"][1]
+        assert system_block["type"] == "text"
+        assert "<system-remember>" in system_block["text"]
+        assert "[Current time:" in system_block["text"]
+        assert datetime.now().strftime("%Y-%m-%d") in system_block["text"]
 
     def test_build_messages_without_datetime_injection(self):
         """Test datetime is NOT injected when inject_datetime=False.
@@ -70,7 +78,7 @@ class TestMessageConverterBuildMessages:
         assert user_msg["content"] == "Hello"
 
     def test_build_messages_default_injects_datetime(self):
-        """Test that default behavior injects datetime (backward compatibility)."""
+        """Test that default behavior injects datetime as system-remember block (backward compatibility)."""
         messages = MessageConverter.build_messages(
             history=[],
             current_message="Hello",
@@ -79,7 +87,13 @@ class TestMessageConverterBuildMessages:
         )
 
         user_msg = messages[-1]
-        assert "[Current time:" in user_msg["content"]
+        content = user_msg["content"]
+        # New format: list with system-remember block
+        assert isinstance(content, list)
+        system_block_texts = [
+            b["text"] for b in content if b.get("type") == "text"
+        ]
+        assert any("[Current time:" in t for t in system_block_texts)
 
     def test_build_messages_with_history(self):
         """Test that history is preserved."""

@@ -18,6 +18,7 @@ For HTTP Mode (CHAT_SHELL_MODE=http):
 """
 
 import asyncio
+import json
 import logging
 from typing import Any, List, Optional
 
@@ -109,6 +110,104 @@ def _is_http_mode() -> bool:
             "Set CHAT_SHELL_MODE=http and STORAGE_TYPE=remote for HTTP mode."
         )
         return False
+
+
+async def update_user_message_content(
+    task_id: int,
+    user_subtask_id: int,
+    content: Any,
+) -> None:
+    """Persist the formatted user message content (array with system-remember block) to the DB.
+
+    Storing the multi-block content ensures that when this message is later loaded
+    as history for future turns, it carries the *original* timestamp and matches
+    exactly what was sent to the LLM — enabling prefix-cache hits.
+
+    For vision messages only the text blocks (not image_url blocks) are stored,
+    because the image data is already persisted in SubtaskContext.
+
+    Args:
+        task_id: Task ID (used to build the session_id for HTTP mode)
+        user_subtask_id: ID of the user Subtask record to update
+        content: Formatted content — either a string or a list of content blocks
+    """
+    # For vision messages, strip image_url blocks before storing: images are already
+    # in SubtaskContext and would bloat the prompt column unnecessarily.
+    if isinstance(content, list):
+        storage_content: Any = [
+            b for b in content if b.get("type") != "image_url"
+        ]
+        # Keep as list so future loads still see the multi-block structure.
+    else:
+        storage_content = content
+
+    is_http = _is_http_mode()
+    if is_http:
+        await _update_user_message_remote(task_id, user_subtask_id, storage_content)
+    else:
+        await asyncio.to_thread(
+            _update_user_message_in_db_sync, user_subtask_id, storage_content
+        )
+
+
+async def _update_user_message_remote(
+    task_id: int,
+    user_subtask_id: int,
+    content: Any,
+) -> None:
+    """Update user message via RemoteHistoryStore (HTTP mode)."""
+    try:
+        store = _get_remote_history_store()
+        session_id = f"task-{task_id}"
+        await store.update_message(
+            session_id=session_id,
+            message_id=str(user_subtask_id),
+            content=content,
+        )
+        logger.debug(
+            "[history] Updated user message in remote store: "
+            "task_id=%d, user_subtask_id=%d",
+            task_id,
+            user_subtask_id,
+        )
+    except Exception as e:
+        # Non-fatal: prefix caching degrades gracefully if the update fails
+        logger.warning(
+            "[history] Failed to update user message (task_id=%d, "
+            "user_subtask_id=%d): %s",
+            task_id,
+            user_subtask_id,
+            e,
+        )
+
+
+def _update_user_message_in_db_sync(user_subtask_id: int, content: Any) -> None:
+    """Update user message directly in DB (package mode)."""
+    try:
+        from app.db.session import SessionLocal
+        from app.models.subtask import Subtask, SubtaskRole
+
+        db = SessionLocal()
+        try:
+            subtask = db.query(Subtask).filter(Subtask.id == user_subtask_id).first()
+            if subtask and subtask.role == SubtaskRole.USER:
+                subtask.prompt = (
+                    content if isinstance(content, str) else json.dumps(content)
+                )
+                db.commit()
+                logger.debug(
+                    "[history] Updated user message in DB: user_subtask_id=%d",
+                    user_subtask_id,
+                )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(
+            "[history] Failed to update user message in DB "
+            "(user_subtask_id=%d): %s",
+            user_subtask_id,
+            e,
+        )
 
 
 async def get_chat_history(
@@ -354,9 +453,39 @@ def _build_history_messages(
     from app.models.subtask_context import ContextStatus, ContextType, SubtaskContext
 
     if subtask.role == SubtaskRole.USER:
-        # Build text content
-        text_content = subtask.prompt or ""
-        if is_group_chat and sender_username:
+        # Detect whether prompt was stored as a JSON array (new multi-block format).
+        # When stored as an array, the first text block is the user's text and the
+        # remaining blocks (e.g. system-remember) are appended after any
+        # attachment/KB prefix text so the exact structure sent to the LLM is
+        # reproduced, enabling prefix-cache hits on subsequent turns.
+        raw_prompt = subtask.prompt or ""
+        extra_blocks: list[dict[str, Any]] = []  # blocks after the first text block
+        text_content = raw_prompt  # default: treat as plain text
+
+        try:
+            parsed = json.loads(raw_prompt)
+            if isinstance(parsed, list) and all(
+                isinstance(b, dict) for b in parsed
+            ):
+                # Multi-block format — extract the first text block as base text
+                # and collect the remaining blocks (e.g. system-remember) to
+                # re-append after attachment/KB prefix processing.
+                first_text_found = False
+                for block in parsed:
+                    if block.get("type") == "text":
+                        if not first_text_found:
+                            text_content = block.get("text", "")
+                            first_text_found = True
+                        else:
+                            extra_blocks.append(block)
+                    # image_url blocks are deliberately ignored here; the actual
+                    # image data lives in SubtaskContext (vision_parts below).
+        except (json.JSONDecodeError, ValueError):
+            pass  # keep text_content as raw_prompt
+
+        # For group chat, prefix is already embedded by build_messages when the
+        # message was first sent, so we only add it for plain-text (legacy) prompts.
+        if is_group_chat and sender_username and not extra_blocks:
             text_content = f"User[{sender_username}]: {text_content}"
 
         # Load all contexts in one query and separate by type
@@ -374,6 +503,12 @@ def _build_history_messages(
         )
 
         if not all_contexts:
+            if extra_blocks:
+                content_blocks: list[dict[str, Any]] = [
+                    {"type": "text", "text": text_content},
+                    *extra_blocks,
+                ]
+                return [{"role": "user", "content": content_blocks}]
             return [{"role": "user", "content": text_content}]
 
         # Separate contexts by type
@@ -466,8 +601,16 @@ def _build_history_messages(
         # Combine all text parts with XML tags:
         # - attachments wrapped in <attachment> tag
         # - knowledge bases wrapped in <knowledge_base> tag
+        #
+        # When extra_blocks is non-empty the prompt was stored in the new
+        # multi-block array format by update_user_message_content.  In that
+        # case text_content was produced by _build_vision_structure and already
+        # embeds ALL attachment headers (both doc text and image metadata) inside
+        # its <attachment> block.  Re-adding them here would produce duplicates,
+        # so we skip attachment_text_parts.  Knowledge-base content is never
+        # stored inside text_content, so it is always added.
         combined_prefix = ""
-        if attachment_text_parts:
+        if attachment_text_parts and not extra_blocks:
             combined_prefix += (
                 "<attachment>\n" + "".join(attachment_text_parts) + "</attachment>\n\n"
             )
@@ -480,19 +623,29 @@ def _build_history_messages(
             text_content = f"{combined_prefix}{text_content}"
 
         if vision_parts:
-            # Add image metadata headers to text content for reference
-            # Wrap image metadata in <attachment> tag for consistency with first upload
-            if image_metadata_headers:
+            # Add image metadata headers to text content for reference.
+            # Wrap image metadata in <attachment> tag for consistency with first
+            # upload.  Skip when extra_blocks is set: the metadata is already
+            # baked into text_content (see note above).
+            if image_metadata_headers and not extra_blocks:
                 headers_text = "\n\n".join(image_metadata_headers)
                 text_content = (
                     f"<attachment>\n{headers_text}\n</attachment>\n\n{text_content}"
                 )
-            return [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": text_content}, *vision_parts],
-                }
+            # Place text first, then images, then any extra blocks (e.g. system-remember)
+            multimodal_blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": text_content},
+                *vision_parts,
+                *extra_blocks,
             ]
+            return [{"role": "user", "content": multimodal_blocks}]
+        # Text-only path
+        if extra_blocks:
+            text_only_blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": text_content},
+                *extra_blocks,
+            ]
+            return [{"role": "user", "content": text_only_blocks}]
         return [{"role": "user", "content": text_content}]
 
     elif subtask.role == SubtaskRole.ASSISTANT:

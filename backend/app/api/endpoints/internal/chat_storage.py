@@ -13,6 +13,7 @@ Authentication:
 - In production, should be protected by network-level security
 """
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -276,9 +277,31 @@ def _build_user_message_content(
 
     from app.services.context import context_service
 
-    # Build text content
-    text_content = subtask.prompt or ""
-    if is_group_chat and sender_username:
+    # Build text content, handling both plain-text and JSON-array prompt formats.
+    # When stored as a JSON array (multi-block format with system-remember), parse it
+    # so future turns receive the exact content that was originally sent to the LLM.
+    raw_prompt = subtask.prompt or ""
+    extra_blocks: list[dict[str, Any]] = []  # blocks after the first text block
+    text_content = raw_prompt  # default: plain text
+
+    try:
+        parsed = json.loads(raw_prompt)
+        if isinstance(parsed, list) and all(isinstance(b, dict) for b in parsed):
+            first_text_found = False
+            for block in parsed:
+                if block.get("type") == "text":
+                    if not first_text_found:
+                        text_content = block.get("text", "")
+                        first_text_found = True
+                    else:
+                        extra_blocks.append(block)
+                # image_url blocks are ignored here; image data lives in SubtaskContext
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Only apply the group-chat prefix when the message wasn't stored in the new
+    # multi-block array format (which already has the prefix baked in).
+    if is_group_chat and sender_username and not extra_blocks:
         text_content = f"User[{sender_username}]: {text_content}"
 
     # Load all contexts in one query and separate by type
@@ -296,6 +319,8 @@ def _build_user_message_content(
     )
 
     if not all_contexts:
+        if extra_blocks:
+            return [{"type": "text", "text": text_content}, *extra_blocks]
         return text_content
 
     # Separate contexts by type
@@ -432,12 +457,19 @@ def _build_user_message_content(
                 break
 
     # Combine text parts with proper XML tags
-    # For vision parts (images), attachment_text_parts contains image metadata headers
-    # which need to be wrapped in <attachment> tags for consistency with first upload
+    # For vision parts (images), attachment_text_parts contains both image metadata
+    # headers and doc-attachment text, which are wrapped in <attachment> tags.
+    #
+    # When extra_blocks is non-empty the prompt was stored in the new multi-block
+    # array format by update_user_message_content.  In that case text_content was
+    # produced by _build_vision_structure and already embeds ALL attachment content
+    # inside its <attachment> block.  Prepending attachment_text_parts again would
+    # produce duplicates, so we skip it.  Knowledge-base content is never stored
+    # inside text_content, so it is always added.
     if vision_parts:
         # Image attachments: wrap metadata headers in <attachment> tag
         combined_prefix = ""
-        if attachment_text_parts:
+        if attachment_text_parts and not extra_blocks:
             headers_text = "\n\n".join(attachment_text_parts)
             combined_prefix += f"<attachment>\n\n{headers_text}\n</attachment>\n\n"
         if kb_text_parts:
@@ -448,7 +480,8 @@ def _build_user_message_content(
             )
         if combined_prefix:
             text_content = f"{combined_prefix}{text_content}"
-        return [{"type": "text", "text": text_content}, *vision_parts]
+        # Place text first, then images, then system-remember and other extra blocks
+        return [{"type": "text", "text": text_content}, *vision_parts, *extra_blocks]
 
     # Non-image attachments: wrap in <attachment> tag, knowledge bases in <knowledge_base> tag
     combined_prefix = ""
@@ -463,6 +496,8 @@ def _build_user_message_content(
     if combined_prefix:
         text_content = f"{combined_prefix}{text_content}"
 
+    if extra_blocks:
+        return [{"type": "text", "text": text_content}, *extra_blocks]
     return text_content
 
 
@@ -913,7 +948,7 @@ async def update_message(
     # Update content based on role
     if subtask.role == SubtaskRole.USER:
         subtask.prompt = (
-            update.content if isinstance(update.content, str) else str(update.content)
+            update.content if isinstance(update.content, str) else json.dumps(update.content)
         )
     else:
         subtask.result = {

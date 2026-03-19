@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.api.ws.context_decorators import auto_task_context
 from app.api.ws.decorators import trace_websocket_event
+from app.utils.prompt_utils import extract_display_prompt
 from app.api.ws.events import (
     ChatCancelPayload,
     ChatErrorPayload,
@@ -1572,7 +1573,7 @@ def _fetch_subtasks_for_task_join(
                     "id": st.id,
                     "message_id": st.message_id,
                     "role": st.role.value,
-                    "prompt": st.prompt,
+                    "prompt": extract_display_prompt(st.prompt),
                     "result": st.result,
                     "status": st.status.value,
                     "progress": st.progress,
@@ -1710,7 +1711,7 @@ def _fetch_history_messages(task_id: int, after_message_id: int) -> list:
                 "message_id": st.message_id,
                 "role": st.role.value,
                 "content": (
-                    st.prompt
+                    extract_display_prompt(st.prompt)
                     if st.role == SubtaskRole.USER
                     else (st.result.get("value", "") if st.result else "")
                 ),
