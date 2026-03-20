@@ -120,15 +120,20 @@ class LangChainModelFactory:
                 "temperature": kw.get("temperature", 1.0),
                 "max_tokens": cfg.get("max_tokens"),
                 "streaming": kw.get("streaming", False),
-                # Enable automatic caching (released 2026-02-19): top-level cache_control
-                # asks Anthropic to auto-cache up to the last cacheable content block,
-                # reducing costs significantly on repeated/long prompts.
-                # custom headers are passed via extra_headers inside model_kwargs.
+                # Caching strategy:
+                # - Automatic caching (top-level cache_control): available when
+                #   the provider supports it (is_support_claude_automatic_caching).
+                # - Explicit cache breakpoints: added to message content blocks
+                #   by the MessageConverter when automatic caching is unavailable.
                 "model_kwargs": {
                     "extra_headers": {
                         **(cfg.get("default_headers") or {}),
                     },
-                    "cache_control": {"type": "ephemeral"},
+                    **(
+                        {"cache_control": {"type": "ephemeral"}}
+                        if cfg.get("is_support_claude_automatic_caching")
+                        else {}
+                    ),
                 },
             },
         },
@@ -191,6 +196,9 @@ class LangChainModelFactory:
             "api_format": model_config.get("api_format"),
             "max_tokens": model_config.get("max_output_tokens")
             or model_config.get("max_tokens"),
+            "is_support_claude_automatic_caching": model_config.get(
+                "is_support_claude_automatic_caching", False
+            ),
         }
         model_type = model_config.get("model", "openai")
 

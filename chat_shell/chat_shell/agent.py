@@ -331,6 +331,27 @@ class ChatAgent:
 
         return title, sources
 
+    @staticmethod
+    def _needs_explicit_cache_breakpoints(config: "AgentConfig | None") -> bool:
+        """Check if explicit Anthropic cache breakpoints should be added.
+
+        Returns True when the model is an Anthropic model AND the provider does
+        not support automatic caching (``is_support_claude_automatic_caching``
+        is absent or False in model_config).
+        """
+        if config is None:
+            return False
+        mc = config.model_config
+        model_id = mc.get("model_id", "")
+        model_type = mc.get("model", "")
+        is_anthropic = model_id.startswith("claude-") or model_type.lower() in (
+            "anthropic",
+            "claude",
+        )
+        if not is_anthropic:
+            return False
+        return not mc.get("is_support_claude_automatic_caching", False)
+
     def build_messages(
         self,
         history: list[dict[str, Any]],
@@ -388,6 +409,7 @@ class ChatAgent:
             username=username,
             inject_datetime=inject_datetime,
             dynamic_context=dynamic_context,
+            cache_breakpoints=self._needs_explicit_cache_breakpoints(config),
         )
 
         # Apply message compression if enabled and model_id is provided

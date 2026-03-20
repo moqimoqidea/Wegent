@@ -455,3 +455,151 @@ class TestBuildMessagesPlainTextWithTimeBlock:
         user_msg = messages[-1]
         assert isinstance(user_msg["content"], str)
         assert user_msg["content"] == "Hi"
+
+
+class TestCacheBreakpoints:
+    """Tests for Anthropic explicit cache breakpoint support."""
+
+    _CC = {"type": "ephemeral"}
+
+    def test_no_breakpoints_by_default(self):
+        """Cache breakpoints should not be added when cache_breakpoints=False."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=False,
+        )
+        # System prompt stays a plain string
+        assert messages[0]["content"] == "System"
+        assert "cache_control" not in messages[0]
+
+    def test_breakpoint_on_system_prompt(self):
+        """System prompt should get a cache_control breakpoint."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        sys_msg = messages[0]
+        assert isinstance(sys_msg["content"], list)
+        assert sys_msg["content"][0]["text"] == "System"
+        assert sys_msg["content"][0]["cache_control"] == self._CC
+
+    def test_breakpoint_on_last_history_message(self):
+        """Last history message should get a cache_control breakpoint."""
+        history = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="Next question",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # messages[0]=system, messages[1]=user(history), messages[2]=assistant(history), messages[3]=current
+        # The assistant message (last in history) should have cache_control
+        assistant_msg = messages[2]
+        assert isinstance(assistant_msg["content"], list)
+        assert assistant_msg["content"][-1]["cache_control"] == self._CC
+
+    def test_breakpoint_on_dynamic_context(self):
+        """Dynamic context message should get a cache_control breakpoint."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Tell me about X",
+            system_prompt="System",
+            dynamic_context="KB context here",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # messages[0]=system, messages[1]=dynamic_context, messages[2]=current
+        dc_msg = messages[1]
+        assert dc_msg["role"] == "user"
+        assert isinstance(dc_msg["content"], list)
+        assert dc_msg["content"][-1]["cache_control"] == self._CC
+
+    def test_no_breakpoint_on_current_message(self):
+        """The current user message should NOT have a cache_control breakpoint."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        user_msg = messages[-1]
+        if isinstance(user_msg["content"], list):
+            for block in user_msg["content"]:
+                assert "cache_control" not in block
+        elif isinstance(user_msg["content"], str):
+            pass  # no cache_control possible on a string
+
+    def test_breakpoint_with_multiblock_history(self):
+        """History messages that already have list content get breakpoint on last block."""
+        history = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Hi"},
+                    {"type": "text", "text": "<system-reminder>time</system-reminder>"},
+                ],
+            },
+            {"role": "assistant", "content": "Hello there!"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="Follow up",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # The assistant message should have cache_control
+        assistant_msg = messages[2]
+        assert isinstance(assistant_msg["content"], list)
+        assert assistant_msg["content"][-1]["cache_control"] == self._CC
+
+    def test_all_breakpoints_with_full_context(self):
+        """System, history, and dynamic context should all get breakpoints."""
+        history = [
+            {"role": "user", "content": "First message"},
+            {"role": "assistant", "content": "First response"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="New question",
+            system_prompt="You are helpful.",
+            dynamic_context="Important KB content",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # messages: [system, user(hist), assistant(hist), dynamic_ctx, current]
+        assert len(messages) == 5
+
+        # System has breakpoint
+        sys_content = messages[0]["content"]
+        assert isinstance(sys_content, list)
+        assert sys_content[-1]["cache_control"] == self._CC
+
+        # Last history (assistant) has breakpoint
+        hist_content = messages[2]["content"]
+        assert isinstance(hist_content, list)
+        assert hist_content[-1]["cache_control"] == self._CC
+
+        # Dynamic context has breakpoint
+        dc_content = messages[3]["content"]
+        assert isinstance(dc_content, list)
+        assert dc_content[-1]["cache_control"] == self._CC
+
+        # Current message does NOT have breakpoint
+        current_msg = messages[4]
+        if isinstance(current_msg["content"], str):
+            assert "cache_control" not in current_msg
+        elif isinstance(current_msg["content"], list):
+            for block in current_msg["content"]:
+                assert "cache_control" not in block
