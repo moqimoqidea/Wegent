@@ -120,12 +120,15 @@ class LangChainModelFactory:
                 "temperature": kw.get("temperature", 1.0),
                 "max_tokens": cfg.get("max_tokens"),
                 "streaming": kw.get("streaming", False),
-                # Enable prompt caching for Anthropic models (90% cost reduction on cached tokens)
-                # Merge user-provided headers with the prompt-caching beta header
+                # Enable automatic caching (released 2026-02-19): top-level cache_control
+                # asks Anthropic to auto-cache up to the last cacheable content block,
+                # reducing costs significantly on repeated/long prompts.
+                # custom headers are passed via extra_headers inside model_kwargs.
                 "model_kwargs": {
                     "extra_headers": {
                         **(cfg.get("default_headers") or {}),
-                    }
+                    },
+                    "cache_control": {"type": "ephemeral"},
                 },
             },
         },

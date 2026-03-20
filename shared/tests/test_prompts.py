@@ -84,3 +84,143 @@ class TestKBPromptConstants:
         assert "kb_head" in KB_PROMPT_NO_RAG
         assert "RAG retrieval is NOT configured" in KB_PROMPT_NO_RAG
         assert "Intent Routing" in KB_PROMPT_NO_RAG
+
+
+class TestUserQuestionMarker:
+    """Test USER_QUESTION_MARKER constant and extract_user_question utility."""
+
+    def test_marker_importable(self):
+        from shared.prompts import USER_QUESTION_MARKER
+
+        assert USER_QUESTION_MARKER == "[User Question]:"
+
+    def test_extract_plain_text(self):
+        from shared.prompts.constants import extract_user_question
+
+        assert extract_user_question("Hello world") == "Hello world"
+
+    def test_extract_with_attachment_context(self):
+        from shared.prompts.constants import extract_user_question
+
+        text = "<attachment>\nsome metadata\n</attachment>\n\n[User Question]:\nWhat is this?"
+        assert extract_user_question(text) == "What is this?"
+
+    def test_extract_with_kb_and_attachment_context(self):
+        from shared.prompts.constants import extract_user_question
+
+        text = (
+            "<knowledge_base>\nKB content\n</knowledge_base>\n\n"
+            "<attachment>\ndoc content\n</attachment>\n\n"
+            "[User Question]:\nSummarize"
+        )
+        assert extract_user_question(text) == "Summarize"
+
+    def test_extract_strips_whitespace(self):
+        from shared.prompts.constants import extract_user_question
+
+        assert extract_user_question("  Hello  ") == "Hello"
+
+    def test_extract_non_string_returns_str(self):
+        from shared.prompts.constants import extract_user_question
+
+        assert extract_user_question(123) == "123"
+
+    def test_extract_preserves_multiline_question(self):
+        from shared.prompts.constants import extract_user_question
+
+        text = "<attachment>\ndata\n</attachment>\n\n[User Question]:\nLine1\nLine2"
+        assert extract_user_question(text) == "Line1\nLine2"
+
+
+class TestParsePromptBlocks:
+    """Tests for parse_prompt_blocks utility."""
+
+    def test_plain_text_returns_as_is(self):
+        from shared.prompts.constants import parse_prompt_blocks
+
+        text_content, extra = parse_prompt_blocks("Hello world")
+        assert text_content == "Hello world"
+        assert extra == []
+
+    def test_json_array_two_text_blocks(self):
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "User question"},
+                {"type": "text", "text": "<system-reminder>time</system-reminder>"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "User question"
+        assert len(extra) == 1
+        assert extra[0]["text"] == "<system-reminder>time</system-reminder>"
+
+    def test_json_array_single_block(self):
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps([{"type": "text", "text": "Only block"}])
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "Only block"
+        assert extra == []
+
+    def test_json_array_skips_image_url_blocks(self):
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "describe"},
+                {"type": "image_url", "image_url": {"url": "data:..."}},
+                {"type": "text", "text": "<system-reminder>t</system-reminder>"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "describe"
+        assert len(extra) == 1
+
+    def test_invalid_json_returns_raw(self):
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = "[not json"
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == raw
+        assert extra == []
+
+    def test_json_non_array_returns_raw(self):
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps({"type": "text", "text": "hello"})
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == raw
+        assert extra == []
+
+    def test_json_array_of_non_dicts_returns_raw(self):
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(["a", "b"])
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == raw
+        assert extra == []
+
+    def test_empty_string(self):
+        from shared.prompts.constants import parse_prompt_blocks
+
+        text_content, extra = parse_prompt_blocks("")
+        assert text_content == ""
+        assert extra == []
+
+    def test_importable_from_init(self):
+        from shared.prompts import parse_prompt_blocks
+
+        text, extra = parse_prompt_blocks("test")
+        assert text == "test"

@@ -76,12 +76,19 @@ class MessageConverter:
         if dynamic_context:
             messages.append({"role": "user", "content": dynamic_context})
 
-        # Build datetime context suffix for user message (at the END for better caching)
-        # Placing at the end allows the message prefix to be cached via prefix matching
-        time_suffix = ""
+        # Build datetime context for user message as a separate content block.
+        # Injecting as a distinct block (not appended to the text) ensures that:
+        # 1. The user's original text is unchanged across turns → prefix-cache hit
+        # 2. Each turn's history carries the *original* timestamp of that turn
+        # 3. The system prompt remains fully static
+        time_block: dict | None = None
         if inject_datetime:
             now = datetime.now()
-            time_suffix = f"\n[Current time: {now.strftime('%Y-%m-%d %H:%M')}]"
+            time_text = f"[Current time: {now.strftime('%Y-%m-%d %H:%M')}]"
+            time_block = {
+                "type": "text",
+                "text": f"<system-reminder>\n{time_text}\n</system-reminder>",
+            }
 
         if isinstance(current_message, list):
             # OpenAI Responses API format: list of content blocks
@@ -89,16 +96,26 @@ class MessageConverter:
             # Convert to LangChain/OpenAI Chat Completions format
             messages.append(
                 MessageConverter._convert_responses_api_to_langchain(
-                    current_message, username, time_suffix
+                    current_message, username, time_block
                 )
             )
         else:
             # Plain text message
-            content = (
+            user_text = (
                 f"User[{username}]: {current_message}" if username else current_message
             )
-            content = content + time_suffix
-            messages.append({"role": "user", "content": content})
+            if time_block:
+                # Multi-block format: [user_text, system-reminder]
+                # Storing this array in the DB ensures history messages are identical
+                # to what was originally sent, enabling prefix-cache hits.
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": user_text}, time_block],
+                    }
+                )
+            else:
+                messages.append({"role": "user", "content": user_text})
 
         return messages
 
@@ -106,7 +123,7 @@ class MessageConverter:
     def _convert_responses_api_to_langchain(
         content_blocks: list[dict[str, Any]],
         username: str | None = None,
-        time_suffix: str = "",
+        time_block: dict | None = None,
     ) -> dict[str, Any]:
         """Convert OpenAI Responses API format to LangChain/Chat Completions format.
 
@@ -122,32 +139,30 @@ class MessageConverter:
             "content": [
                 {"type": "text", "text": "..."},
                 {"type": "image_url", "image_url": {"url": "data:..."}},
+                {"type": "text", "text": "<system-reminder>...</system-reminder>"},
             ]
         }
 
         Args:
             content_blocks: List of content blocks in Responses API format
             username: Optional username to prefix text content
-            time_suffix: Optional time suffix to append to text content
+            time_block: Optional pre-built system-reminder block to append at the end
 
         Returns:
             Message dict in LangChain/Chat Completions format
         """
         langchain_content: list[dict[str, Any]] = []
-        first_text_processed = False
 
         for block in content_blocks:
             block_type = block.get("type", "")
 
             if block_type == "input_text":
-                # Convert input_text to text
-                text = block.get("text", "")
-                if not first_text_processed:
-                    if username:
-                        text = f"User[{username}]: {text}"
-                    text = text + time_suffix
-                    first_text_processed = True
-                langchain_content.append({"type": "text", "text": text})
+                # Convert input_text → text.  Username prefix is applied after
+                # the loop to the LAST text block, which is always the user's
+                # own message (attachment metadata occupies earlier blocks).
+                langchain_content.append(
+                    {"type": "text", "text": block.get("text", "")}
+                )
 
             elif block_type == "input_image":
                 # Convert input_image to image_url
@@ -178,6 +193,23 @@ class MessageConverter:
                     langchain_content.append(
                         {"type": "image_url", "image_url": {"url": image_url}}
                     )
+
+        # Apply username prefix to the LAST text block, which is always the user's
+        # own message.  Attachment metadata occupies the first text block(s) and
+        # must not be prefixed.
+        if username:
+            for i in range(len(langchain_content) - 1, -1, -1):
+                if langchain_content[i].get("type") == "text":
+                    langchain_content[i][
+                        "text"
+                    ] = f"User[{username}]: {langchain_content[i]['text']}"
+                    break
+
+        # Append the system-reminder time block at the end (after all content blocks).
+        # This keeps the user's text and images as the stable prefix, and the time
+        # context as a trailing block that changes each minute.
+        if time_block:
+            langchain_content.append(time_block)
 
         return {"role": "user", "content": langchain_content}
 

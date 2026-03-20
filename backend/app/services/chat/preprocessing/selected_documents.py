@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.models.knowledge import KnowledgeDocument
 from app.models.subtask_context import ContextStatus, ContextType, SubtaskContext
+from shared.prompts.constants import USER_QUESTION_MARKER
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +363,7 @@ def _inject_documents_directly(
         final_message = _prepend_to_responses_api_content(message, documents_text)
     else:
         # String message - prepend documents
-        final_message = documents_text + f"\n\n[User Question]:\n{message}"
+        final_message = documents_text + f"\n\n{USER_QUESTION_MARKER}\n{message}"
 
     logger.info(
         f"[_inject_documents_directly] Injected {len(documents_content)} documents "
