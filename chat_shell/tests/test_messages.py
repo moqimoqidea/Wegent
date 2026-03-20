@@ -90,9 +90,7 @@ class TestMessageConverterBuildMessages:
         content = user_msg["content"]
         # New format: list with system-reminder block
         assert isinstance(content, list)
-        system_block_texts = [
-            b["text"] for b in content if b.get("type") == "text"
-        ]
+        system_block_texts = [b["text"] for b in content if b.get("type") == "text"]
         assert any("[Current time:" in t for t in system_block_texts)
 
     def test_build_messages_with_history(self):
@@ -328,3 +326,132 @@ class TestMessageConverterIsVisionMessage:
             ],
         }
         assert MessageConverter.is_vision_message(message) is False
+
+
+class TestConvertResponsesAPIToLangchain:
+    """Tests for _convert_responses_api_to_langchain with new username/time_block changes."""
+
+    def test_username_applied_to_last_text_block(self):
+        """Username prefix is applied to the LAST text block (user's question), not the first."""
+        blocks = [
+            {"type": "input_text", "text": "<attachment>\nmetadata\n</attachment>"},
+            {"type": "input_text", "text": "What is this?"},
+        ]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="Alice"
+        )
+        content = result["content"]
+        # The first block (attachment metadata) must NOT have the prefix
+        assert content[0]["text"] == "<attachment>\nmetadata\n</attachment>"
+        # The second block (user question) should have the prefix
+        assert content[1]["text"] == "User[Alice]: What is this?"
+
+    def test_time_block_appended_at_end(self):
+        """System-reminder time block is appended after all content blocks."""
+        blocks = [{"type": "input_text", "text": "Hello"}]
+        time_block = {
+            "type": "text",
+            "text": "<system-reminder>[time]</system-reminder>",
+        }
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, time_block=time_block
+        )
+        content = result["content"]
+        assert len(content) == 2
+        assert content[0]["text"] == "Hello"
+        assert content[1] == time_block
+
+    def test_username_and_time_block_combined(self):
+        """Username prefix on last text + time block at end."""
+        blocks = [
+            {"type": "input_text", "text": "attachment data"},
+            {"type": "input_text", "text": "My question"},
+        ]
+        time_block = {
+            "type": "text",
+            "text": "<system-reminder>[now]</system-reminder>",
+        }
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="Bob", time_block=time_block
+        )
+        content = result["content"]
+        assert len(content) == 3
+        assert content[0]["text"] == "attachment data"
+        assert content[1]["text"] == "User[Bob]: My question"
+        assert content[2] == time_block
+
+    def test_no_username_no_time_block(self):
+        """Without username and time_block, content is passed through."""
+        blocks = [{"type": "input_text", "text": "Hello"}]
+        result = MessageConverter._convert_responses_api_to_langchain(blocks)
+        content = result["content"]
+        assert len(content) == 1
+        assert content[0] == {"type": "text", "text": "Hello"}
+
+    def test_vision_message_with_username(self):
+        """Vision message: username applied to last text block, images preserved."""
+        blocks = [
+            {"type": "input_text", "text": "What is this?"},
+            {"type": "input_image", "image_url": "data:image/png;base64,abc"},
+        ]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="Alice"
+        )
+        content = result["content"]
+        text_blocks = [b for b in content if b.get("type") == "text"]
+        image_blocks = [b for b in content if b.get("type") == "image_url"]
+        assert len(text_blocks) == 1
+        assert text_blocks[0]["text"] == "User[Alice]: What is this?"
+        assert len(image_blocks) == 1
+
+    def test_single_text_block_gets_username(self):
+        """With only one text block, it gets the username prefix."""
+        blocks = [{"type": "input_text", "text": "Hello"}]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="X"
+        )
+        assert result["content"][0]["text"] == "User[X]: Hello"
+
+
+class TestBuildMessagesPlainTextWithTimeBlock:
+    """Tests for plain text message building with the new time block format."""
+
+    def test_plain_text_with_datetime_produces_list_content(self):
+        """Plain text + datetime injection produces a list of two blocks."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hi",
+            system_prompt="",
+            inject_datetime=True,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], list)
+        assert len(user_msg["content"]) == 2
+        assert user_msg["content"][0]["type"] == "text"
+        assert user_msg["content"][0]["text"] == "Hi"
+        assert "<system-reminder>" in user_msg["content"][1]["text"]
+
+    def test_plain_text_with_username_and_datetime(self):
+        """Plain text + username + datetime: username in first block text."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hi",
+            system_prompt="",
+            username="Alice",
+            inject_datetime=True,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], list)
+        assert user_msg["content"][0]["text"] == "User[Alice]: Hi"
+
+    def test_plain_text_no_datetime_stays_string(self):
+        """Without datetime injection, content remains a plain string."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hi",
+            system_prompt="",
+            inject_datetime=False,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], str)
+        assert user_msg["content"] == "Hi"

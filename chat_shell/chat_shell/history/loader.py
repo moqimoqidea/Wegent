@@ -22,9 +22,8 @@ import json
 import logging
 from typing import Any, List, Optional
 
-from shared.prompts.constants import USER_QUESTION_MARKER
-
 from chat_shell.core.config import settings
+from shared.prompts.constants import USER_QUESTION_MARKER, parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -136,9 +135,7 @@ async def update_user_message_content(
     # For vision messages, strip image_url blocks before storing: images are already
     # in SubtaskContext and would bloat the prompt column unnecessarily.
     if isinstance(content, list):
-        storage_content: Any = [
-            b for b in content if b.get("type") != "image_url"
-        ]
+        storage_content: Any = [b for b in content if b.get("type") != "image_url"]
         # Keep as list so future loads still see the multi-block structure.
     else:
         storage_content = content
@@ -205,8 +202,7 @@ def _update_user_message_in_db_sync(user_subtask_id: int, content: Any) -> None:
             db.close()
     except Exception as e:
         logger.warning(
-            "[history] Failed to update user message in DB "
-            "(user_subtask_id=%d): %s",
+            "[history] Failed to update user message in DB " "(user_subtask_id=%d): %s",
             user_subtask_id,
             e,
         )
@@ -455,35 +451,9 @@ def _build_history_messages(
     from app.models.subtask_context import ContextStatus, ContextType, SubtaskContext
 
     if subtask.role == SubtaskRole.USER:
-        # Detect whether prompt was stored as a JSON array (new multi-block format).
-        # When stored as an array, the first text block is the user's text and the
-        # remaining blocks (e.g. system-reminder) are appended after any
-        # attachment/KB prefix text so the exact structure sent to the LLM is
-        # reproduced, enabling prefix-cache hits on subsequent turns.
+        # Parse multi-block prompt format (JSON array with system-reminder blocks).
         raw_prompt = subtask.prompt or ""
-        extra_blocks: list[dict[str, Any]] = []  # blocks after the first text block
-        text_content = raw_prompt  # default: treat as plain text
-
-        try:
-            parsed = json.loads(raw_prompt)
-            if isinstance(parsed, list) and all(
-                isinstance(b, dict) for b in parsed
-            ):
-                # Multi-block format — extract the first text block as base text
-                # and collect the remaining blocks (e.g. system-reminder) to
-                # re-append after attachment/KB prefix processing.
-                first_text_found = False
-                for block in parsed:
-                    if block.get("type") == "text":
-                        if not first_text_found:
-                            text_content = block.get("text", "")
-                            first_text_found = True
-                        else:
-                            extra_blocks.append(block)
-                    # image_url blocks are deliberately ignored here; the actual
-                    # image data lives in SubtaskContext (vision_parts below).
-        except (json.JSONDecodeError, ValueError):
-            pass  # keep text_content as raw_prompt
+        text_content, extra_blocks = parse_prompt_blocks(raw_prompt)
 
         # For group chat, prefix is already embedded by build_messages when the
         # message was first sent, so we only add it for plain-text (legacy) prompts.

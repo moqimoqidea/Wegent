@@ -14,9 +14,10 @@ shown to users in the chat UI.  This module provides a single helper that strips
 internal blocks and returns only the human-visible portion of the prompt.
 """
 
-import json
 import logging
 from typing import Optional
+
+from shared.prompts.constants import parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -37,18 +38,10 @@ def extract_display_prompt(prompt: Optional[str]) -> Optional[str]:
     if not prompt:
         return prompt
 
-    # Fast path: if the string doesn't start with '[' it's definitely plain text
-    stripped = prompt.lstrip()
-    if not stripped.startswith("["):
-        return prompt
-
-    try:
-        parsed = json.loads(prompt)
-        if isinstance(parsed, list) and all(isinstance(b, dict) for b in parsed):
-            for block in parsed:
-                if block.get("type") == "text":
-                    return block.get("text", "")
-    except (json.JSONDecodeError, ValueError):
-        pass
+    text_content, extra_blocks = parse_prompt_blocks(prompt)
+    # When extra_blocks is non-empty the prompt was a JSON array; return
+    # only the first text block (the user's message).
+    if extra_blocks or text_content != prompt:
+        return text_content
 
     return prompt

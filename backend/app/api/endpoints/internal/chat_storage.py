@@ -32,7 +32,7 @@ from app.models.subtask_context import (
     SubtaskContext,
 )
 from app.models.user import User
-from shared.prompts.constants import USER_QUESTION_MARKER
+from shared.prompts.constants import USER_QUESTION_MARKER, parse_prompt_blocks
 from shared.telemetry.decorators import trace_sync
 
 logger = logging.getLogger(__name__)
@@ -279,26 +279,8 @@ def _build_user_message_content(
     from app.services.context import context_service
 
     # Build text content, handling both plain-text and JSON-array prompt formats.
-    # When stored as a JSON array (multi-block format with system-reminder), parse it
-    # so future turns receive the exact content that was originally sent to the LLM.
     raw_prompt = subtask.prompt or ""
-    extra_blocks: list[dict[str, Any]] = []  # blocks after the first text block
-    text_content = raw_prompt  # default: plain text
-
-    try:
-        parsed = json.loads(raw_prompt)
-        if isinstance(parsed, list) and all(isinstance(b, dict) for b in parsed):
-            first_text_found = False
-            for block in parsed:
-                if block.get("type") == "text":
-                    if not first_text_found:
-                        text_content = block.get("text", "")
-                        first_text_found = True
-                    else:
-                        extra_blocks.append(block)
-                # image_url blocks are ignored here; image data lives in SubtaskContext
-    except (json.JSONDecodeError, ValueError):
-        pass
+    text_content, extra_blocks = parse_prompt_blocks(raw_prompt)
 
     # Only apply the group-chat prefix when the message wasn't stored in the new
     # multi-block array format (which already has the prefix baked in).
@@ -501,9 +483,7 @@ def _build_user_message_content(
         )
     if combined_prefix:
         if USER_QUESTION_MARKER not in text_content:
-            text_content = (
-                f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
-            )
+            text_content = f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
         else:
             text_content = f"{combined_prefix}{text_content}"
 
@@ -959,7 +939,9 @@ async def update_message(
     # Update content based on role
     if subtask.role == SubtaskRole.USER:
         subtask.prompt = (
-            update.content if isinstance(update.content, str) else json.dumps(update.content)
+            update.content
+            if isinstance(update.content, str)
+            else json.dumps(update.content)
         )
     else:
         subtask.result = {
