@@ -38,7 +38,7 @@ class TestMessageConverterBuildMessages:
         assert messages[1]["content"] == "Hello"
 
     def test_build_messages_with_datetime_injection(self):
-        """Test datetime is injected when inject_datetime=True."""
+        """Test datetime is injected as a system-reminder block when inject_datetime=True."""
         messages = MessageConverter.build_messages(
             history=[],
             current_message="Hello",
@@ -48,9 +48,17 @@ class TestMessageConverterBuildMessages:
 
         user_msg = messages[-1]
         assert user_msg["role"] == "user"
-        assert "[Current time:" in user_msg["content"]
-        # Verify the datetime format
-        assert datetime.now().strftime("%Y-%m-%d") in user_msg["content"]
+        # Content should now be a list of two blocks
+        assert isinstance(user_msg["content"], list)
+        assert len(user_msg["content"]) == 2
+        # First block: plain user text
+        assert user_msg["content"][0] == {"type": "text", "text": "Hello"}
+        # Second block: system-reminder with current time
+        system_block = user_msg["content"][1]
+        assert system_block["type"] == "text"
+        assert "<system-reminder>" in system_block["text"]
+        assert "[Current time:" in system_block["text"]
+        assert datetime.now().strftime("%Y-%m-%d") in system_block["text"]
 
     def test_build_messages_without_datetime_injection(self):
         """Test datetime is NOT injected when inject_datetime=False.
@@ -70,7 +78,7 @@ class TestMessageConverterBuildMessages:
         assert user_msg["content"] == "Hello"
 
     def test_build_messages_default_injects_datetime(self):
-        """Test that default behavior injects datetime (backward compatibility)."""
+        """Test that default behavior injects datetime as system-reminder block (backward compatibility)."""
         messages = MessageConverter.build_messages(
             history=[],
             current_message="Hello",
@@ -79,7 +87,11 @@ class TestMessageConverterBuildMessages:
         )
 
         user_msg = messages[-1]
-        assert "[Current time:" in user_msg["content"]
+        content = user_msg["content"]
+        # New format: list with system-reminder block
+        assert isinstance(content, list)
+        system_block_texts = [b["text"] for b in content if b.get("type") == "text"]
+        assert any("[Current time:" in t for t in system_block_texts)
 
     def test_build_messages_with_history(self):
         """Test that history is preserved."""
@@ -314,3 +326,280 @@ class TestMessageConverterIsVisionMessage:
             ],
         }
         assert MessageConverter.is_vision_message(message) is False
+
+
+class TestConvertResponsesAPIToLangchain:
+    """Tests for _convert_responses_api_to_langchain with new username/time_block changes."""
+
+    def test_username_applied_to_last_text_block(self):
+        """Username prefix is applied to the LAST text block (user's question), not the first."""
+        blocks = [
+            {"type": "input_text", "text": "<attachment>\nmetadata\n</attachment>"},
+            {"type": "input_text", "text": "What is this?"},
+        ]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="Alice"
+        )
+        content = result["content"]
+        # The first block (attachment metadata) must NOT have the prefix
+        assert content[0]["text"] == "<attachment>\nmetadata\n</attachment>"
+        # The second block (user question) should have the prefix
+        assert content[1]["text"] == "User[Alice]: What is this?"
+
+    def test_time_block_appended_at_end(self):
+        """System-reminder time block is appended after all content blocks."""
+        blocks = [{"type": "input_text", "text": "Hello"}]
+        time_block = {
+            "type": "text",
+            "text": "<system-reminder>[time]</system-reminder>",
+        }
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, time_block=time_block
+        )
+        content = result["content"]
+        assert len(content) == 2
+        assert content[0]["text"] == "Hello"
+        assert content[1] == time_block
+
+    def test_username_and_time_block_combined(self):
+        """Username prefix on last text + time block at end."""
+        blocks = [
+            {"type": "input_text", "text": "attachment data"},
+            {"type": "input_text", "text": "My question"},
+        ]
+        time_block = {
+            "type": "text",
+            "text": "<system-reminder>[now]</system-reminder>",
+        }
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="Bob", time_block=time_block
+        )
+        content = result["content"]
+        assert len(content) == 3
+        assert content[0]["text"] == "attachment data"
+        assert content[1]["text"] == "User[Bob]: My question"
+        assert content[2] == time_block
+
+    def test_no_username_no_time_block(self):
+        """Without username and time_block, content is passed through."""
+        blocks = [{"type": "input_text", "text": "Hello"}]
+        result = MessageConverter._convert_responses_api_to_langchain(blocks)
+        content = result["content"]
+        assert len(content) == 1
+        assert content[0] == {"type": "text", "text": "Hello"}
+
+    def test_vision_message_with_username(self):
+        """Vision message: username applied to last text block, images preserved."""
+        blocks = [
+            {"type": "input_text", "text": "What is this?"},
+            {"type": "input_image", "image_url": "data:image/png;base64,abc"},
+        ]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="Alice"
+        )
+        content = result["content"]
+        text_blocks = [b for b in content if b.get("type") == "text"]
+        image_blocks = [b for b in content if b.get("type") == "image_url"]
+        assert len(text_blocks) == 1
+        assert text_blocks[0]["text"] == "User[Alice]: What is this?"
+        assert len(image_blocks) == 1
+
+    def test_single_text_block_gets_username(self):
+        """With only one text block, it gets the username prefix."""
+        blocks = [{"type": "input_text", "text": "Hello"}]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, username="X"
+        )
+        assert result["content"][0]["text"] == "User[X]: Hello"
+
+
+class TestBuildMessagesPlainTextWithTimeBlock:
+    """Tests for plain text message building with the new time block format."""
+
+    def test_plain_text_with_datetime_produces_list_content(self):
+        """Plain text + datetime injection produces a list of two blocks."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hi",
+            system_prompt="",
+            inject_datetime=True,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], list)
+        assert len(user_msg["content"]) == 2
+        assert user_msg["content"][0]["type"] == "text"
+        assert user_msg["content"][0]["text"] == "Hi"
+        assert "<system-reminder>" in user_msg["content"][1]["text"]
+
+    def test_plain_text_with_username_and_datetime(self):
+        """Plain text + username + datetime: username in first block text."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hi",
+            system_prompt="",
+            username="Alice",
+            inject_datetime=True,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], list)
+        assert user_msg["content"][0]["text"] == "User[Alice]: Hi"
+
+    def test_plain_text_no_datetime_stays_string(self):
+        """Without datetime injection, content remains a plain string."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hi",
+            system_prompt="",
+            inject_datetime=False,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], str)
+        assert user_msg["content"] == "Hi"
+
+
+class TestCacheBreakpoints:
+    """Tests for Anthropic explicit cache breakpoint support."""
+
+    _CC = {"type": "ephemeral"}
+
+    def test_no_breakpoints_by_default(self):
+        """Cache breakpoints should not be added when cache_breakpoints=False."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=False,
+        )
+        # System prompt stays a plain string
+        assert messages[0]["content"] == "System"
+        assert "cache_control" not in messages[0]
+
+    def test_breakpoint_on_system_prompt(self):
+        """System prompt should get a cache_control breakpoint."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        sys_msg = messages[0]
+        assert isinstance(sys_msg["content"], list)
+        assert sys_msg["content"][0]["text"] == "System"
+        assert sys_msg["content"][0]["cache_control"] == self._CC
+
+    def test_breakpoint_on_last_history_message(self):
+        """Last history message should get a cache_control breakpoint."""
+        history = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="Next question",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # messages[0]=system, messages[1]=user(history), messages[2]=assistant(history), messages[3]=current
+        # The assistant message (last in history) should have cache_control
+        assistant_msg = messages[2]
+        assert isinstance(assistant_msg["content"], list)
+        assert assistant_msg["content"][-1]["cache_control"] == self._CC
+
+    def test_breakpoint_on_dynamic_context(self):
+        """Dynamic context message should get a cache_control breakpoint."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Tell me about X",
+            system_prompt="System",
+            dynamic_context="KB context here",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # messages[0]=system, messages[1]=dynamic_context, messages[2]=current
+        dc_msg = messages[1]
+        assert dc_msg["role"] == "user"
+        assert isinstance(dc_msg["content"], list)
+        assert dc_msg["content"][-1]["cache_control"] == self._CC
+
+    def test_no_breakpoint_on_current_message(self):
+        """The current user message should NOT have a cache_control breakpoint."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        user_msg = messages[-1]
+        if isinstance(user_msg["content"], list):
+            for block in user_msg["content"]:
+                assert "cache_control" not in block
+        elif isinstance(user_msg["content"], str):
+            pass  # no cache_control possible on a string
+
+    def test_breakpoint_with_multiblock_history(self):
+        """History messages that already have list content get breakpoint on last block."""
+        history = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Hi"},
+                    {"type": "text", "text": "<system-reminder>time</system-reminder>"},
+                ],
+            },
+            {"role": "assistant", "content": "Hello there!"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="Follow up",
+            system_prompt="System",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # The assistant message should have cache_control
+        assistant_msg = messages[2]
+        assert isinstance(assistant_msg["content"], list)
+        assert assistant_msg["content"][-1]["cache_control"] == self._CC
+
+    def test_all_breakpoints_with_full_context(self):
+        """System, history, and dynamic context should all get breakpoints."""
+        history = [
+            {"role": "user", "content": "First message"},
+            {"role": "assistant", "content": "First response"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="New question",
+            system_prompt="You are helpful.",
+            dynamic_context="Important KB content",
+            inject_datetime=False,
+            cache_breakpoints=True,
+        )
+        # messages: [system, user(hist), assistant(hist), dynamic_ctx, current]
+        assert len(messages) == 5
+
+        # System has breakpoint
+        sys_content = messages[0]["content"]
+        assert isinstance(sys_content, list)
+        assert sys_content[-1]["cache_control"] == self._CC
+
+        # Last history (assistant) has breakpoint
+        hist_content = messages[2]["content"]
+        assert isinstance(hist_content, list)
+        assert hist_content[-1]["cache_control"] == self._CC
+
+        # Dynamic context has breakpoint
+        dc_content = messages[3]["content"]
+        assert isinstance(dc_content, list)
+        assert dc_content[-1]["cache_control"] == self._CC
+
+        # Current message does NOT have breakpoint
+        current_msg = messages[4]
+        if isinstance(current_msg["content"], str):
+            assert "cache_control" not in current_msg
+        elif isinstance(current_msg["content"], list):
+            for block in current_msg["content"]:
+                assert "cache_control" not in block
