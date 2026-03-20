@@ -117,7 +117,7 @@ async def update_user_message_content(
     user_subtask_id: int,
     content: Any,
 ) -> None:
-    """Persist the formatted user message content (array with system-remember block) to the DB.
+    """Persist the formatted user message content (array with system-reminder block) to the DB.
 
     Storing the multi-block content ensures that when this message is later loaded
     as history for future turns, it carries the *original* timestamp and matches
@@ -455,7 +455,7 @@ def _build_history_messages(
     if subtask.role == SubtaskRole.USER:
         # Detect whether prompt was stored as a JSON array (new multi-block format).
         # When stored as an array, the first text block is the user's text and the
-        # remaining blocks (e.g. system-remember) are appended after any
+        # remaining blocks (e.g. system-reminder) are appended after any
         # attachment/KB prefix text so the exact structure sent to the LLM is
         # reproduced, enabling prefix-cache hits on subsequent turns.
         raw_prompt = subtask.prompt or ""
@@ -468,7 +468,7 @@ def _build_history_messages(
                 isinstance(b, dict) for b in parsed
             ):
                 # Multi-block format — extract the first text block as base text
-                # and collect the remaining blocks (e.g. system-remember) to
+                # and collect the remaining blocks (e.g. system-reminder) to
                 # re-append after attachment/KB prefix processing.
                 first_text_found = False
                 for block in parsed:
@@ -632,7 +632,7 @@ def _build_history_messages(
                 text_content = (
                     f"<attachment>\n{headers_text}\n</attachment>\n\n{text_content}"
                 )
-            # Place text first, then images, then any extra blocks (e.g. system-remember)
+            # Place text first, then images, then any extra blocks (e.g. system-reminder)
             multimodal_blocks: list[dict[str, Any]] = [
                 {"type": "text", "text": text_content},
                 *vision_parts,

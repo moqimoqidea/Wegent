@@ -7,9 +7,9 @@
 When chat mode sends a message with `inject_datetime=True`, the user message is
 stored in ``Subtask.prompt`` as a JSON array of content blocks:
 
-    [{"type": "text", "text": "<user text>"}, {"type": "text", "text": "<system-remember>..."}]
+    [{"type": "text", "text": "<user text>"}, {"type": "text", "text": "<system-reminder>..."}]
 
-The system-remember block carries the current time for the LLM but must not be
+The system-reminder block carries the current time for the LLM but must not be
 shown to users in the chat UI.  This module provides a single helper that strips
 internal blocks and returns only the human-visible portion of the prompt.
 """

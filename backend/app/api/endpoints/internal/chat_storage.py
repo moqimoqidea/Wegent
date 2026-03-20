@@ -278,7 +278,7 @@ def _build_user_message_content(
     from app.services.context import context_service
 
     # Build text content, handling both plain-text and JSON-array prompt formats.
-    # When stored as a JSON array (multi-block format with system-remember), parse it
+    # When stored as a JSON array (multi-block format with system-reminder), parse it
     # so future turns receive the exact content that was originally sent to the LLM.
     raw_prompt = subtask.prompt or ""
     extra_blocks: list[dict[str, Any]] = []  # blocks after the first text block
@@ -480,7 +480,7 @@ def _build_user_message_content(
             )
         if combined_prefix:
             text_content = f"{combined_prefix}{text_content}"
-        # Place text first, then images, then system-remember and other extra blocks
+        # Place text first, then images, then system-reminder and other extra blocks
         return [{"type": "text", "text": text_content}, *vision_parts, *extra_blocks]
 
     # Non-image attachments: wrap in <attachment> tag, knowledge bases in <knowledge_base> tag

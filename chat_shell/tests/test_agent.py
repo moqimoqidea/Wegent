@@ -76,7 +76,7 @@ class TestMessageBuilding:
     """Tests for message building that don't require langchain."""
 
     def test_datetime_is_injected_when_enabled(self):
-        """Test that datetime is injected as system-remember block when inject_datetime=True."""
+        """Test that datetime is injected as system-reminder block when inject_datetime=True."""
         messages = MessageConverter.build_messages(
             history=[],
             current_message="Hello",
@@ -87,7 +87,7 @@ class TestMessageBuilding:
         user_msg = next((m for m in messages if m["role"] == "user"), None)
         assert user_msg is not None
         content = user_msg["content"]
-        # New format: list with system-remember block
+        # New format: list with system-reminder block
         assert isinstance(content, list)
         all_texts = [b["text"] for b in content if b.get("type") == "text"]
         assert any("[Current time:" in t for t in all_texts)
@@ -121,7 +121,7 @@ class TestChatAgentBuildMessages:
     """
 
     def test_build_messages_with_enable_deep_thinking_true(self):
-        """Test that datetime is injected as system-remember block when enable_deep_thinking=True."""
+        """Test that datetime is injected as system-reminder block when enable_deep_thinking=True."""
         from chat_shell.agent import AgentConfig, ChatAgent
 
         agent = ChatAgent()
@@ -195,7 +195,7 @@ class TestChatAgentBuildMessages:
         assert "[Current time:" not in user_msg["content"]
 
     def test_build_messages_without_config_defaults_to_inject_datetime(self):
-        """Test that without config, datetime is injected as system-remember block by default (backward compatibility)."""
+        """Test that without config, datetime is injected as system-reminder block by default (backward compatibility)."""
         from chat_shell.agent import ChatAgent
 
         agent = ChatAgent()

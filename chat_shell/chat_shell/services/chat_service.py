@@ -288,7 +288,7 @@ class ChatService(ChatInterface):
             )
             add_span_event("messages_built", {"message_count": len(messages)})
 
-            # Persist the formatted user message (with system-remember time block) to
+            # Persist the formatted user message (with system-reminder time block) to
             # the DB so that future turns load the same exact content, enabling
             # prefix-cache hits.  We do this only when datetime was injected
             # (enable_deep_thinking=True) and the user subtask ID is known.

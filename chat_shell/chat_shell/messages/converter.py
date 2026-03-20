@@ -87,7 +87,7 @@ class MessageConverter:
             time_text = f"[Current time: {now.strftime('%Y-%m-%d %H:%M')}]"
             time_block = {
                 "type": "text",
-                "text": f"<system-remember>\n{time_text}\n</system-remember>",
+                "text": f"<system-reminder>\n{time_text}\n</system-reminder>",
             }
 
         if isinstance(current_message, list):
@@ -105,7 +105,7 @@ class MessageConverter:
                 f"User[{username}]: {current_message}" if username else current_message
             )
             if time_block:
-                # Multi-block format: [user_text, system-remember]
+                # Multi-block format: [user_text, system-reminder]
                 # Storing this array in the DB ensures history messages are identical
                 # to what was originally sent, enabling prefix-cache hits.
                 messages.append(
@@ -136,14 +136,14 @@ class MessageConverter:
             "content": [
                 {"type": "text", "text": "..."},
                 {"type": "image_url", "image_url": {"url": "data:..."}},
-                {"type": "text", "text": "<system-remember>...</system-remember>"},
+                {"type": "text", "text": "<system-reminder>...</system-reminder>"},
             ]
         }
 
         Args:
             content_blocks: List of content blocks in Responses API format
             username: Optional username to prefix text content
-            time_block: Optional pre-built system-remember block to append at the end
+            time_block: Optional pre-built system-reminder block to append at the end
 
         Returns:
             Message dict in LangChain/Chat Completions format
@@ -200,7 +200,7 @@ class MessageConverter:
                     )
                     break
 
-        # Append the system-remember time block at the end (after all content blocks).
+        # Append the system-reminder time block at the end (after all content blocks).
         # This keeps the user's text and images as the stable prefix, and the time
         # context as a trailing block that changes each minute.
         if time_block:
