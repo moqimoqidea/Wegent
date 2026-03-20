@@ -463,13 +463,12 @@ class TestCacheBreakpoints:
     _CC = {"type": "ephemeral"}
 
     def test_no_breakpoints_by_default(self):
-        """Cache breakpoints should not be added when cache_breakpoints=False."""
+        """Cache breakpoints should not be added unless explicitly applied."""
         messages = MessageConverter.build_messages(
             history=[],
             current_message="Hello",
             system_prompt="System",
             inject_datetime=False,
-            cache_breakpoints=False,
         )
         # System prompt stays a plain string
         assert messages[0]["content"] == "System"
@@ -482,7 +481,11 @@ class TestCacheBreakpoints:
             current_message="Hello",
             system_prompt="System",
             inject_datetime=False,
-            cache_breakpoints=True,
+        )
+        MessageConverter.apply_cache_breakpoints(
+            messages,
+            has_history=False,
+            has_dynamic_context=False,
         )
         sys_msg = messages[0]
         assert isinstance(sys_msg["content"], list)
@@ -500,7 +503,11 @@ class TestCacheBreakpoints:
             current_message="Next question",
             system_prompt="System",
             inject_datetime=False,
-            cache_breakpoints=True,
+        )
+        MessageConverter.apply_cache_breakpoints(
+            messages,
+            has_history=True,
+            has_dynamic_context=False,
         )
         # messages[0]=system, messages[1]=user(history), messages[2]=assistant(history), messages[3]=current
         # The assistant message (last in history) should have cache_control
@@ -516,7 +523,11 @@ class TestCacheBreakpoints:
             system_prompt="System",
             dynamic_context="KB context here",
             inject_datetime=False,
-            cache_breakpoints=True,
+        )
+        MessageConverter.apply_cache_breakpoints(
+            messages,
+            has_history=False,
+            has_dynamic_context=True,
         )
         # messages[0]=system, messages[1]=dynamic_context, messages[2]=current
         dc_msg = messages[1]
@@ -531,7 +542,11 @@ class TestCacheBreakpoints:
             current_message="Hello",
             system_prompt="System",
             inject_datetime=False,
-            cache_breakpoints=True,
+        )
+        MessageConverter.apply_cache_breakpoints(
+            messages,
+            has_history=False,
+            has_dynamic_context=False,
         )
         user_msg = messages[-1]
         if isinstance(user_msg["content"], list):
@@ -557,7 +572,11 @@ class TestCacheBreakpoints:
             current_message="Follow up",
             system_prompt="System",
             inject_datetime=False,
-            cache_breakpoints=True,
+        )
+        MessageConverter.apply_cache_breakpoints(
+            messages,
+            has_history=True,
+            has_dynamic_context=False,
         )
         # The assistant message should have cache_control
         assistant_msg = messages[2]
@@ -576,7 +595,11 @@ class TestCacheBreakpoints:
             system_prompt="You are helpful.",
             dynamic_context="Important KB content",
             inject_datetime=False,
-            cache_breakpoints=True,
+        )
+        MessageConverter.apply_cache_breakpoints(
+            messages,
+            has_history=True,
+            has_dynamic_context=True,
         )
         # messages: [system, user(hist), assistant(hist), dynamic_ctx, current]
         assert len(messages) == 5

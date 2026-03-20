@@ -330,9 +330,10 @@ class TestPromptModifierFunction:
     def test_prompt_modifier_preserves_list_content_with_cache_control(self):
         """Test that prompt_modifier preserves list content blocks (e.g., Anthropic cache breakpoints).
 
-        When cache_breakpoints=True, system message content is a list of content blocks
-        with cache_control markers. The prompt_modifier must NOT stringify the list via
-        str(), which would corrupt the system parameter sent to the Anthropic API.
+        Cache breakpoints are applied after compression, converting system message
+        content to a list of content blocks with cache_control markers. The
+        prompt_modifier must NOT stringify the list via str(), which would corrupt
+        the system parameter sent to the Anthropic API.
         """
         # Arrange
         mock_llm = MagicMock()

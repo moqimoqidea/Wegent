@@ -409,10 +409,11 @@ class ChatAgent:
             username=username,
             inject_datetime=inject_datetime,
             dynamic_context=dynamic_context,
-            cache_breakpoints=self._needs_explicit_cache_breakpoints(config),
         )
 
-        # Apply message compression if enabled and model_id is provided
+        # Apply message compression if enabled and model_id is provided.
+        # Compression runs BEFORE cache breakpoints so that strategies
+        # don't need to be aware of Anthropic cache_control metadata.
         compression_enabled = getattr(settings, "MESSAGE_COMPRESSION_ENABLED", True)
         if model_id and compression_enabled:
             # Pass model_config to compressor for context window configuration
@@ -433,6 +434,16 @@ class ChatAgent:
                     ", ".join(result.strategies_applied),
                 )
                 messages = result.messages
+
+        # Apply Anthropic explicit cache breakpoints AFTER compression.
+        # This ensures breakpoints are placed on the final message layout
+        # and compression strategies don't strip or corrupt them.
+        if self._needs_explicit_cache_breakpoints(config):
+            MessageConverter.apply_cache_breakpoints(
+                messages,
+                has_history=bool(history),
+                has_dynamic_context=bool(dynamic_context),
+            )
 
         return messages
 
