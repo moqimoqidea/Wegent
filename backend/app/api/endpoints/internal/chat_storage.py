@@ -32,6 +32,7 @@ from app.models.subtask_context import (
     SubtaskContext,
 )
 from app.models.user import User
+from shared.prompts.constants import USER_QUESTION_MARKER
 from shared.telemetry.decorators import trace_sync
 
 logger = logging.getLogger(__name__)
@@ -479,7 +480,12 @@ def _build_user_message_content(
                 + "</knowledge_base>\n\n"
             )
         if combined_prefix:
-            text_content = f"{combined_prefix}{text_content}"
+            if USER_QUESTION_MARKER not in text_content:
+                text_content = (
+                    f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
+                )
+            else:
+                text_content = f"{combined_prefix}{text_content}"
         # Place text first, then images, then system-reminder and other extra blocks
         return [{"type": "text", "text": text_content}, *vision_parts, *extra_blocks]
 
@@ -494,7 +500,12 @@ def _build_user_message_content(
             "<knowledge_base>" + "\n\n".join(kb_text_parts) + "</knowledge_base>\n\n"
         )
     if combined_prefix:
-        text_content = f"{combined_prefix}{text_content}"
+        if USER_QUESTION_MARKER not in text_content:
+            text_content = (
+                f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
+            )
+        else:
+            text_content = f"{combined_prefix}{text_content}"
 
     if extra_blocks:
         return [{"type": "text", "text": text_content}, *extra_blocks]

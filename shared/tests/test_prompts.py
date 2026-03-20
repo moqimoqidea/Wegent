@@ -84,3 +84,49 @@ class TestKBPromptConstants:
         assert "kb_head" in KB_PROMPT_NO_RAG
         assert "RAG retrieval is NOT configured" in KB_PROMPT_NO_RAG
         assert "Intent Routing" in KB_PROMPT_NO_RAG
+
+
+class TestUserQuestionMarker:
+    """Test USER_QUESTION_MARKER constant and extract_user_question utility."""
+
+    def test_marker_importable(self):
+        from shared.prompts import USER_QUESTION_MARKER
+
+        assert USER_QUESTION_MARKER == "[User Question]:"
+
+    def test_extract_plain_text(self):
+        from shared.prompts.constants import extract_user_question
+
+        assert extract_user_question("Hello world") == "Hello world"
+
+    def test_extract_with_attachment_context(self):
+        from shared.prompts.constants import extract_user_question
+
+        text = "<attachment>\nsome metadata\n</attachment>\n\n[User Question]:\nWhat is this?"
+        assert extract_user_question(text) == "What is this?"
+
+    def test_extract_with_kb_and_attachment_context(self):
+        from shared.prompts.constants import extract_user_question
+
+        text = (
+            "<knowledge_base>\nKB content\n</knowledge_base>\n\n"
+            "<attachment>\ndoc content\n</attachment>\n\n"
+            "[User Question]:\nSummarize"
+        )
+        assert extract_user_question(text) == "Summarize"
+
+    def test_extract_strips_whitespace(self):
+        from shared.prompts.constants import extract_user_question
+
+        assert extract_user_question("  Hello  ") == "Hello"
+
+    def test_extract_non_string_returns_str(self):
+        from shared.prompts.constants import extract_user_question
+
+        assert extract_user_question(123) == "123"
+
+    def test_extract_preserves_multiline_question(self):
+        from shared.prompts.constants import extract_user_question
+
+        text = "<attachment>\ndata\n</attachment>\n\n[User Question]:\nLine1\nLine2"
+        assert extract_user_question(text) == "Line1\nLine2"

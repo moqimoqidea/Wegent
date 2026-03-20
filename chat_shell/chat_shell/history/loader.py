@@ -22,6 +22,8 @@ import json
 import logging
 from typing import Any, List, Optional
 
+from shared.prompts.constants import USER_QUESTION_MARKER
+
 from chat_shell.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -620,7 +622,16 @@ def _build_history_messages(
             )
 
         if combined_prefix:
-            text_content = f"{combined_prefix}{text_content}"
+            # Add the [User Question]: marker between context and user text to
+            # match the format produced by the context preprocessor on first
+            # send.  Skip when text_content already contains the marker (e.g.
+            # from the multi-block stored format that embeds attachments).
+            if USER_QUESTION_MARKER not in text_content:
+                text_content = (
+                    f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
+                )
+            else:
+                text_content = f"{combined_prefix}{text_content}"
 
         if vision_parts:
             # Add image metadata headers to text content for reference.

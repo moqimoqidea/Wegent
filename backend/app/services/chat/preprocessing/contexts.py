@@ -30,6 +30,7 @@ from shared.prompts import (
     KB_PROMPT_RESTRICTED_ANALYST,
     KB_PROMPT_STRICT,
 )
+from shared.prompts.constants import USER_QUESTION_MARKER
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ def _combine_text_contents(text_contents: List[str], message: str) -> str:
     combined_contents = (
         "<attachment>\n" + "\n\n".join(text_contents) + "\n</attachment>\n\n"
     )
-    return f"{combined_contents}[User Question]:\n{message}"
+    return f"{combined_contents}{USER_QUESTION_MARKER}\n{message}"
 
 
 def _process_attachment_context(
@@ -1043,7 +1044,7 @@ async def _process_attachment_contexts_for_message(
         combined_contents = (
             "<attachment>\n" + "\n\n".join(text_contents) + "\n</attachment>\n\n"
         )
-        return f"{combined_contents}[User Question]:\n{message}"
+        return f"{combined_contents}{USER_QUESTION_MARKER}\n{message}"
 
     # Return original message if no attachment contents were processed
     return message
