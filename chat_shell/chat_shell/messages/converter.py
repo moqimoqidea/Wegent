@@ -34,7 +34,6 @@ class MessageConverter:
         username: str | None = None,
         inject_datetime: bool = True,
         dynamic_context: str | None = None,
-        cache_breakpoints: bool = False,
     ) -> list[dict[str, Any]]:
         """Build a complete message list from history, current message, and system prompt.
 
@@ -53,6 +52,9 @@ class MessageConverter:
         The dynamic_context is injected as a human message before the current user message to
         keep system prompts static and improve cache hit rate.
 
+        Note: Anthropic explicit cache breakpoints should be applied AFTER
+        message compression via ``apply_cache_breakpoints()``, not here.
+
         Args:
             history: Previous messages in the conversation
             current_message: The current user message. Can be:
@@ -63,10 +65,6 @@ class MessageConverter:
             username: Optional username to prefix the current message (for group chat)
             inject_datetime: Whether to inject current datetime into user message (default: True)
             dynamic_context: Optional dynamic context to inject before current message
-            cache_breakpoints: Whether to add Anthropic explicit cache breakpoints
-                to stable message blocks (system prompt, last history message,
-                dynamic context).  Enable this for Anthropic models that do not
-                support automatic caching.
 
         Returns:
             List of message dicts ready for LLM API (LangChain/OpenAI Chat Completions format)
@@ -122,13 +120,6 @@ class MessageConverter:
             else:
                 messages.append({"role": "user", "content": user_text})
 
-        if cache_breakpoints:
-            MessageConverter._apply_cache_breakpoints(
-                messages,
-                has_history=bool(history),
-                has_dynamic_context=bool(dynamic_context),
-            )
-
         return messages
 
     # ------------------------------------------------------------------
@@ -139,7 +130,7 @@ class MessageConverter:
     _CACHE_CONTROL = {"type": "ephemeral"}
 
     @staticmethod
-    def _apply_cache_breakpoints(
+    def apply_cache_breakpoints(
         messages: list[dict[str, Any]],
         *,
         has_history: bool,
@@ -172,7 +163,7 @@ class MessageConverter:
 
         # 1. System prompt (first message if role==system)
         if messages and messages[0].get("role") == "system":
-            MessageConverter._set_cache_control(messages, 0, cc)
+            MessageConverter._set_cache_control_on_message(messages, 0, cc)
 
         # 2. Last history message (the message just before dynamic_context or
         #    current user message — whichever comes first)
@@ -186,15 +177,15 @@ class MessageConverter:
             if hist_idx is None:
                 hist_idx = _last_index("user", search_end)
             if hist_idx is not None:
-                MessageConverter._set_cache_control(messages, hist_idx, cc)
+                MessageConverter._set_cache_control_on_message(messages, hist_idx, cc)
 
         # 3. Dynamic context message (right before the current user message)
         if has_dynamic_context and len(messages) >= 2:
             dc_idx = len(messages) - 2
-            MessageConverter._set_cache_control(messages, dc_idx, cc)
+            MessageConverter._set_cache_control_on_message(messages, dc_idx, cc)
 
     @staticmethod
-    def _set_cache_control(
+    def _set_cache_control_on_message(
         messages: list[dict[str, Any]],
         idx: int,
         cache_control: dict[str, str],
