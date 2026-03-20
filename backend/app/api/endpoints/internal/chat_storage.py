@@ -84,6 +84,7 @@ class MessageResponse(BaseModel):
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
     tool_calls: Optional[list] = None
+    reasoning_content: Any | None = None
     created_at: Optional[str] = None
     loaded_skills: Optional[list[str]] = None  # Skills loaded in this message turn
 
@@ -242,6 +243,7 @@ def subtask_to_messages(
                 name=msg.get("name"),
                 tool_call_id=msg.get("tool_call_id"),
                 tool_calls=msg.get("tool_calls"),
+                reasoning_content=msg.get("reasoning_content"),
                 created_at=created_at,
             )
             # Attach loaded_skills to the last assistant message
@@ -281,10 +283,13 @@ def _build_user_message_content(
     # Build text content, handling both plain-text and JSON-array prompt formats.
     raw_prompt = subtask.prompt or ""
     text_content, extra_blocks = parse_prompt_blocks(raw_prompt)
+    # Detect structured prompts: the prompt was a stored JSON array even when
+    # extra_blocks is empty (e.g. a single-block array after image stripping).
+    is_structured_prompt = bool(extra_blocks) or text_content != raw_prompt
 
     # Only apply the group-chat prefix when the message wasn't stored in the new
     # multi-block array format (which already has the prefix baked in).
-    if is_group_chat and sender_username and not extra_blocks:
+    if is_group_chat and sender_username and not is_structured_prompt:
         text_content = f"User[{sender_username}]: {text_content}"
 
     # Load all contexts in one query and separate by type
@@ -302,7 +307,7 @@ def _build_user_message_content(
     )
 
     if not all_contexts:
-        if extra_blocks:
+        if is_structured_prompt:
             return [{"type": "text", "text": text_content}, *extra_blocks]
         return text_content
 
@@ -443,7 +448,7 @@ def _build_user_message_content(
     # For vision parts (images), attachment_text_parts contains both image metadata
     # headers and doc-attachment text, which are wrapped in <attachment> tags.
     #
-    # When extra_blocks is non-empty the prompt was stored in the new multi-block
+    # When is_structured_prompt is true the prompt was stored in the new multi-block
     # array format by update_user_message_content.  In that case text_content was
     # produced by _build_vision_structure and already embeds ALL attachment content
     # inside its <attachment> block.  Prepending attachment_text_parts again would
@@ -452,7 +457,7 @@ def _build_user_message_content(
     if vision_parts:
         # Image attachments: wrap metadata headers in <attachment> tag
         combined_prefix = ""
-        if attachment_text_parts and not extra_blocks:
+        if attachment_text_parts and not is_structured_prompt:
             headers_text = "\n\n".join(attachment_text_parts)
             combined_prefix += f"<attachment>\n\n{headers_text}\n</attachment>\n\n"
         if kb_text_parts:
@@ -487,7 +492,7 @@ def _build_user_message_content(
         else:
             text_content = f"{combined_prefix}{text_content}"
 
-    if extra_blocks:
+    if is_structured_prompt:
         return [{"type": "text", "text": text_content}, *extra_blocks]
     return text_content
 

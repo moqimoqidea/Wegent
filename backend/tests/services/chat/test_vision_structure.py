@@ -33,7 +33,7 @@ class TestBuildVisionStructure:
         assert "<attachment>" in result[0]["text"]
         assert result[1]["type"] == "input_image"
         assert result[2]["type"] == "input_text"
-        assert result[2]["text"] == "What is this?"
+        assert result[2]["text"] == f"{USER_QUESTION_MARKER}\nWhat is this?"
 
     def test_no_attachments_no_attachment_block(self):
         """When there are no text contents and no image headers, skip attachment block."""
@@ -44,7 +44,7 @@ class TestBuildVisionStructure:
         assert len(result) == 2
         assert result[0]["type"] == "input_image"
         assert result[1]["type"] == "input_text"
-        assert result[1]["text"] == "Describe"
+        assert result[1]["text"] == f"{USER_QUESTION_MARKER}\nDescribe"
 
     def test_text_and_image_attachments(self):
         """Both text and image attachments are combined in one <attachment> block."""
@@ -65,7 +65,7 @@ class TestBuildVisionStructure:
         assert "[Image: chart.png]" in attachment_block["text"]
 
         # Last block is user message
-        assert result[-1]["text"] == "Summarize"
+        assert result[-1]["text"] == f"{USER_QUESTION_MARKER}\nSummarize"
 
     def test_multiple_images(self):
         """Multiple images produce multiple input_image blocks."""
@@ -77,7 +77,7 @@ class TestBuildVisionStructure:
 
         image_blocks = [b for b in result if b["type"] == "input_image"]
         assert len(image_blocks) == 2
-        assert result[-1]["text"] == "Compare these"
+        assert result[-1]["text"] == f"{USER_QUESTION_MARKER}\nCompare these"
 
     def test_empty_image_base64_skipped(self):
         """Images without base64 data don't produce image blocks."""

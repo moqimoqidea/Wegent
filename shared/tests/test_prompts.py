@@ -222,5 +222,51 @@ class TestParsePromptBlocks:
     def test_importable_from_init(self):
         from shared.prompts import parse_prompt_blocks
 
-        text, extra = parse_prompt_blocks("test")
+        text, _extra = parse_prompt_blocks("test")
         assert text == "test"
+
+    def test_input_text_type_blocks(self):
+        """Vision payloads use input_text/input_image types."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "input_text", "text": "<attachment>metadata</attachment>"},
+                {"type": "input_image", "image_url": "data:image/png;base64,..."},
+                {"type": "input_text", "text": "[User Question]:\nDescribe this"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "<attachment>metadata</attachment>"
+        assert len(extra) == 1
+        assert extra[0]["text"] == "[User Question]:\nDescribe this"
+
+    def test_input_text_single_block(self):
+        """Single input_text block after image stripping."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps([{"type": "input_text", "text": "Hello"}])
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "Hello"
+        assert extra == []
+
+    def test_mixed_text_and_input_text(self):
+        """Mixed LangChain and Responses API format blocks."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "User message"},
+                {"type": "input_text", "text": "Extra context"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "User message"
+        assert len(extra) == 1
+        assert extra[0]["text"] == "Extra context"

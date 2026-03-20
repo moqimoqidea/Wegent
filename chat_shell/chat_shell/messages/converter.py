@@ -198,12 +198,20 @@ class MessageConverter:
         # own message.  Attachment metadata occupies the first text block(s) and
         # must not be prefixed.
         if username:
+            text_found = False
             for i in range(len(langchain_content) - 1, -1, -1):
                 if langchain_content[i].get("type") == "text":
                     langchain_content[i][
                         "text"
                     ] = f"User[{username}]: {langchain_content[i]['text']}"
+                    text_found = True
                     break
+            # For image-only messages, insert a text block so the model knows
+            # who sent the image.
+            if not text_found:
+                langchain_content.insert(
+                    0, {"type": "text", "text": f"User[{username}]:"}
+                )
 
         # Append the system-reminder time block at the end (after all content blocks).
         # This keeps the user's text and images as the stable prefix, and the time

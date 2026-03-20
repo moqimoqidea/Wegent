@@ -44,8 +44,13 @@ def parse_prompt_blocks(raw_prompt: str) -> tuple[str, list[dict[str, Any]]]:
             text_content = raw_prompt  # fallback if no text block found
             extra_blocks: list[dict[str, Any]] = []
             first_text_found = False
+            # Support both LangChain format ("text") and Responses API format
+            # ("input_text").  The first text block is the user's message; the
+            # rest (e.g. system-reminder) are extra blocks.  Non-text blocks
+            # (image_url, input_image) are deliberately skipped.
+            _TEXT_TYPES = {"text", "input_text"}
             for block in parsed:
-                if block.get("type") == "text":
+                if block.get("type") in _TEXT_TYPES:
                     if not first_text_found:
                         text_content = block.get("text", "")
                         first_text_found = True

@@ -454,10 +454,13 @@ def _build_history_messages(
         # Parse multi-block prompt format (JSON array with system-reminder blocks).
         raw_prompt = subtask.prompt or ""
         text_content, extra_blocks = parse_prompt_blocks(raw_prompt)
+        # Detect structured prompts: the prompt was a stored JSON array even when
+        # extra_blocks is empty (e.g. a single-block array after image stripping).
+        is_structured_prompt = bool(extra_blocks) or text_content != raw_prompt
 
         # For group chat, prefix is already embedded by build_messages when the
         # message was first sent, so we only add it for plain-text (legacy) prompts.
-        if is_group_chat and sender_username and not extra_blocks:
+        if is_group_chat and sender_username and not is_structured_prompt:
             text_content = f"User[{sender_username}]: {text_content}"
 
         # Load all contexts in one query and separate by type
@@ -475,7 +478,7 @@ def _build_history_messages(
         )
 
         if not all_contexts:
-            if extra_blocks:
+            if is_structured_prompt:
                 content_blocks: list[dict[str, Any]] = [
                     {"type": "text", "text": text_content},
                     *extra_blocks,
@@ -574,7 +577,7 @@ def _build_history_messages(
         # - attachments wrapped in <attachment> tag
         # - knowledge bases wrapped in <knowledge_base> tag
         #
-        # When extra_blocks is non-empty the prompt was stored in the new
+        # When is_structured_prompt is true the prompt was stored in the new
         # multi-block array format by update_user_message_content.  In that
         # case text_content was produced by _build_vision_structure and already
         # embeds ALL attachment headers (both doc text and image metadata) inside
@@ -582,7 +585,7 @@ def _build_history_messages(
         # so we skip attachment_text_parts.  Knowledge-base content is never
         # stored inside text_content, so it is always added.
         combined_prefix = ""
-        if attachment_text_parts and not extra_blocks:
+        if attachment_text_parts and not is_structured_prompt:
             combined_prefix += (
                 "<attachment>\n" + "".join(attachment_text_parts) + "</attachment>\n\n"
             )
@@ -606,9 +609,9 @@ def _build_history_messages(
         if vision_parts:
             # Add image metadata headers to text content for reference.
             # Wrap image metadata in <attachment> tag for consistency with first
-            # upload.  Skip when extra_blocks is set: the metadata is already
+            # upload.  Skip when is_structured_prompt: the metadata is already
             # baked into text_content (see note above).
-            if image_metadata_headers and not extra_blocks:
+            if image_metadata_headers and not is_structured_prompt:
                 headers_text = "\n\n".join(image_metadata_headers)
                 text_content = (
                     f"<attachment>\n{headers_text}\n</attachment>\n\n{text_content}"
@@ -621,7 +624,7 @@ def _build_history_messages(
             ]
             return [{"role": "user", "content": multimodal_blocks}]
         # Text-only path
-        if extra_blocks:
+        if is_structured_prompt:
             text_only_blocks: list[dict[str, Any]] = [
                 {"type": "text", "text": text_content},
                 *extra_blocks,

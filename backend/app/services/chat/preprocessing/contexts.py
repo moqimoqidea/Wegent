@@ -221,7 +221,10 @@ def _build_vision_structure(
     # 3. User message as its own text block — keeps it isolated from attachment
     #    metadata so the model sees the question without extra noise, and so the
     #    exact user text is preserved for prefix-cache stability.
-    content.append({"type": "input_text", "text": message})
+    #    The USER_QUESTION_MARKER delimiter allows downstream consumers
+    #    (e.g. ImageAgent._normalize_prompt) to separate the user's question
+    #    from attachment metadata when concatenating all input_text blocks.
+    content.append({"type": "input_text", "text": f"{USER_QUESTION_MARKER}\n{message}"})
 
     return content
 
