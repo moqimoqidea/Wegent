@@ -813,14 +813,14 @@ async def append_message(
         subtask.prompt = (
             message.content
             if isinstance(message.content, str)
-            else str(message.content)
+            else json.dumps(message.content, ensure_ascii=False)
         )
     else:
         subtask.result = {
             "value": (
                 message.content
                 if isinstance(message.content, str)
-                else str(message.content)
+                else json.dumps(message.content, ensure_ascii=False)
             )
         }
 
@@ -893,14 +893,14 @@ async def append_messages_batch(
             subtask.prompt = (
                 message.content
                 if isinstance(message.content, str)
-                else str(message.content)
+                else json.dumps(message.content, ensure_ascii=False)
             )
         else:
             subtask.result = {
                 "value": (
                     message.content
                     if isinstance(message.content, str)
-                    else str(message.content)
+                    else json.dumps(message.content, ensure_ascii=False)
                 )
             }
 
@@ -946,14 +946,14 @@ async def update_message(
         subtask.prompt = (
             update.content
             if isinstance(update.content, str)
-            else json.dumps(update.content)
+            else json.dumps(update.content, ensure_ascii=False)
         )
     else:
         subtask.result = {
             "value": (
                 update.content
                 if isinstance(update.content, str)
-                else str(update.content)
+                else json.dumps(update.content, ensure_ascii=False)
             )
         }
 

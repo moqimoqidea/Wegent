@@ -390,21 +390,35 @@ class LangGraphAgentBuilder:
 
             for msg in messages:
                 if isinstance(msg, SystemMessage) and not system_updated:
-                    # Append modifications to existing system message
-                    original_content = (
-                        msg.content
-                        if isinstance(msg.content, str)
-                        else str(msg.content)
-                    )
-                    updated_content = original_content + combined_modification
+                    # Append modifications to existing system message.
+                    # Content may be a string or a list of content blocks
+                    # (e.g., when Anthropic cache_control breakpoints are set).
+                    # Preserve the original format to keep cache markers intact.
+                    if isinstance(msg.content, list):
+                        # List of content blocks — append modification as a new
+                        # text block so existing cache_control markers stay valid.
+                        updated_content = msg.content + [
+                            {"type": "text", "text": combined_modification}
+                        ]
+                    else:
+                        updated_content = msg.content + combined_modification
                     new_messages.append(SystemMessage(content=updated_content))
                     system_updated = True
 
                     # Log the final system prompt metadata at INFO level
                     # Full content is only logged at DEBUG level to avoid leaking sensitive data
+                    content_len = (
+                        sum(
+                            len(b.get("text", ""))
+                            for b in updated_content
+                            if isinstance(b, dict)
+                        )
+                        if isinstance(updated_content, list)
+                        else len(updated_content)
+                    )
                     logger.info(
                         "[prompt_modifier] Final system prompt (len=%d)",
-                        len(updated_content),
+                        content_len,
                     )
                     # logger.debug(
                     #     "[prompt_modifier] Final system prompt content:\n%s",
