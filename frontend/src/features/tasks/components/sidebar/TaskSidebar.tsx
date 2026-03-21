@@ -114,15 +114,25 @@ export default function TaskSidebar({
   const handleOpenSearchDialog = () => {
     setIsSearchDialogOpen(true)
   }
-
   // Navigation buttons - always show all buttons
-  const navigationButtons = [
+  // Define type explicitly to include all possible buttonPageType values
+  type ButtonPageType = 'chat' | 'code' | 'flow' | 'knowledge' | 'devices'
+  interface NavigationButton {
+    label: string
+    icon: typeof Workflow
+    path: string
+    isActive: boolean
+    tooltip?: string
+    buttonPageType: ButtonPageType
+  }
+
+  const navigationButtons: NavigationButton[] = [
     {
       label: t('common:navigation.flow'),
       icon: Workflow,
       path: paths.feed.getHref(),
       isActive: pageType === 'flow',
-      buttonPageType: 'flow' as const,
+      buttonPageType: 'flow',
     },
     {
       label: t('common:navigation.code'),
@@ -130,21 +140,21 @@ export default function TaskSidebar({
       path: paths.code.getHref(),
       isActive: pageType === 'code',
       tooltip: pageType === 'code' ? t('common:tasks.new_task') : undefined,
-      buttonPageType: 'code' as const,
+      buttonPageType: 'code',
     },
     {
       label: t('common:navigation.wiki'),
       icon: BookOpen,
       path: paths.wiki.getHref(),
       isActive: pageType === 'knowledge',
-      buttonPageType: 'knowledge' as const,
+      buttonPageType: 'knowledge',
     },
     {
       label: t('devices:my_devices'),
       icon: Monitor,
       path: paths.devices.getHref(),
       isActive: pageType === 'devices',
-      buttonPageType: 'devices' as const,
+      buttonPageType: 'devices',
     },
   ]
 
