@@ -173,8 +173,7 @@ export default function McpProviderIntegrations({ providerId }: { providerId: st
     } catch (error) {
       toast({
         variant: 'destructive',
-        title:
-          (error as Error)?.message || t(`${providerId}.services.${serviceId}.save_failed`),
+        title: (error as Error)?.message || t(`${providerId}.services.${serviceId}.save_failed`),
       })
     } finally {
       setSavingServiceId(null)
