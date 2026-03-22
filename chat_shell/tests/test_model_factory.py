@@ -287,3 +287,82 @@ class TestCreateFromConfigThinkConfig:
         config = self._base_config(think_config={})
         model = LangChainModelFactory.create_from_config(config)
         assert type(model) is ChatOpenAI
+
+
+# ---------------------------------------------------------------------------
+# Temperature from model_config
+# ---------------------------------------------------------------------------
+
+class TestCreateFromConfigTemperature:
+    """Tests for temperature from model_config in create_from_config."""
+
+    @staticmethod
+    def _base_config(provider="openai", model_id="gpt-4", **overrides):
+        return {
+            "model_id": model_id,
+            "model": provider,
+            "api_key": "sk-test-key-1234567890",
+            "base_url": "https://api.example.com/v1",
+            **overrides,
+        }
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_openai_temperature_from_config(self, _span):
+        """OpenAI: temperature from model_config applied."""
+        config = self._base_config(temperature=0.3)
+        model = LangChainModelFactory.create_from_config(config)
+        assert model.temperature == 0.3
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_anthropic_temperature_from_config(self, _span):
+        """Anthropic: temperature from model_config applied."""
+        config = self._base_config(provider="anthropic", model_id="claude-3-sonnet", temperature=0.5)
+        model = LangChainModelFactory.create_from_config(config)
+        assert model.temperature == 0.5
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_google_temperature_from_config(self, _span):
+        """Google: temperature from model_config applied."""
+        config = self._base_config(provider="google", model_id="gemini-2.5-pro", temperature=0.8)
+        model = LangChainModelFactory.create_from_config(config)
+        assert model.temperature == 0.8
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_config_temperature_overrides_kwargs(self, _span):
+        """model_config temperature takes priority over kwargs temperature."""
+        config = self._base_config(temperature=0.2)
+        model = LangChainModelFactory.create_from_config(config, temperature=0.9)
+        assert model.temperature == 0.2
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_no_config_temperature_uses_kwargs(self, _span):
+        """No model_config temperature → kwargs temperature used."""
+        config = self._base_config()
+        model = LangChainModelFactory.create_from_config(config, temperature=0.6)
+        assert model.temperature == 0.6
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_no_temperature_anywhere_uses_default(self, _span):
+        """No temperature → default 1.0."""
+        config = self._base_config()
+        model = LangChainModelFactory.create_from_config(config)
+        assert model.temperature == 1.0
+
+    @patch("chat_shell.models.factory.add_span_event")
+    @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
+    def test_anthropic_thinking_overrides_config_temperature(self, _span):
+        """Anthropic thinking mode forces temperature=1.0 even with config temperature."""
+        config = self._base_config(
+            provider="anthropic",
+            model_id="claude-3-sonnet",
+            temperature=0.3,
+            think_config={"thinking": {"type": "enabled", "budget_tokens": 10000}},
+        )
+        model = LangChainModelFactory.create_from_config(config)
+        assert model.temperature == 1.0

@@ -104,6 +104,18 @@ export interface ModelInitialData {
   thinkingConfig?: Record<string, unknown>
 }
 
+/**
+ * Extract thinkingConfig from model - reads from env (single source of truth).
+ */
+function extractThinkingConfig(
+  model: import('@/apis/models').ModelCRD,
+): Record<string, unknown> | undefined {
+  const env = model.spec?.modelConfig?.env
+  return (env?.thinking_config ?? env?.thinkingConfig) as
+    | Record<string, unknown>
+    | undefined
+}
+
 interface ModelEditDialogProps {
   open: boolean
   /**
@@ -266,7 +278,7 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
             sttConfig: model.spec.sttConfig,
             embeddingConfig: model.spec.embeddingConfig,
             rerankConfig: model.spec.rerankConfig,
-            thinkingConfig: model.spec.thinkingConfig as Record<string, unknown> | undefined,
+            thinkingConfig: extractThinkingConfig(model),
           }
         : null)
     )
@@ -1031,6 +1043,8 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
               ...(baseUrl && { base_url: baseUrl }),
               ...(parsedHeaders &&
                 Object.keys(parsedHeaders).length > 0 && { custom_headers: parsedHeaders }),
+              // Thinking/reasoning config stored in env (single source of truth)
+              ...(parsedThinkingConfig && Object.keys(parsedThinkingConfig).length > 0 && { thinking_config: parsedThinkingConfig }),
             },
           },
           modelType: modelCategoryType,
@@ -1050,8 +1064,6 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
           ...(rerankConfig && { rerankConfig }),
           ...(videoConfig && { videoConfig }),
           ...(imageGenerationConfig && { imageConfig: imageGenerationConfig }),
-          // Thinking/reasoning config for LLM models
-          ...(modelCategoryType === 'llm' && parsedThinkingConfig && Object.keys(parsedThinkingConfig).length > 0 && { thinkingConfig: parsedThinkingConfig }),
         },
         status: {
           state: 'Available',

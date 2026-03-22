@@ -209,14 +209,6 @@ class ModelSpec(BaseModel):
     imageConfig: Optional[ImageGenerationConfig] = Field(
         None, description="Image generation configuration (when modelType='image')"
     )
-    thinkingConfig: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Provider-native thinking/reasoning configuration. "
-        "Passed through to the LLM provider as-is. "
-        "Examples: {'thinking': {'type': 'enabled', 'budget_tokens': 10000}} for Anthropic, "
-        "{'reasoning_effort': 'medium'} for OpenAI, "
-        "{'thinking_level': 'medium'} for Gemini.",
-    )
     isAdvanced: Optional[bool] = Field(
         None,
         description="Whether this is an advanced model. Advanced models are hidden by default in chat model selector.",

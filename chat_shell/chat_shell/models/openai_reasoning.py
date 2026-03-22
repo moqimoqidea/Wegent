@@ -19,7 +19,7 @@ Usage:
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import ChatGenerationChunk
 
@@ -60,3 +60,39 @@ class ChatOpenAIWithReasoning(ChatOpenAI):
                 )
 
         return generation_chunk
+
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict:
+        """Override to inject reasoning_content into assistant messages.
+
+        LangChain's ``_convert_message_to_dict`` drops ``reasoning_content``
+        from ``additional_kwargs``.  For OpenAI-compatible APIs with thinking
+        enabled (e.g., Kimi, DeepSeek), ``reasoning_content`` must be present
+        in assistant messages in the conversation history, otherwise the API
+        returns a 400 error.
+        """
+        # Capture original LangChain messages before they are converted
+        lc_messages = self._convert_input(input_).to_messages()
+
+        # Build the standard payload via parent
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+
+        # Post-process: inject reasoning_content into assistant message dicts.
+        # The payload messages are in 1:1 correspondence with lc_messages.
+        payload_messages = payload.get("messages")
+        if payload_messages and len(payload_messages) == len(lc_messages):
+            for lc_msg, api_msg in zip(lc_messages, payload_messages):
+                if (
+                    isinstance(lc_msg, AIMessage)
+                    and api_msg.get("role") == "assistant"
+                ):
+                    reasoning = lc_msg.additional_kwargs.get("reasoning_content")
+                    if reasoning is not None:
+                        api_msg["reasoning_content"] = reasoning
+
+        return payload

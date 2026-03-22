@@ -102,7 +102,6 @@ export interface ModelCRD {
     rerankConfig?: RerankConfig
     videoConfig?: VideoGenerationConfig
     imageConfig?: ImageGenerationConfig
-    thinkingConfig?: Record<string, unknown>
   }
   status?: {
     state: string

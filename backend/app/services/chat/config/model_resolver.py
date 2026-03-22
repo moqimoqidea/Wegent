@@ -738,10 +738,18 @@ def _extract_model_config(model_spec: Dict[str, Any]) -> Dict[str, Any]:
     video_config = model_spec.get("videoConfig")
 
     # Thinking/reasoning config (provider-native passthrough)
-    thinking_config = model_spec.get("thinkingConfig")
+    # Only read from env - this is the single source of truth
+    thinking_config = env.get("thinking_config") or env.get("thinkingConfig")
     if thinking_config:
         logger.info(
-            f"[model_resolver] _extract_model_config: thinkingConfig={list(thinking_config.keys())}"
+            f"[model_resolver] _extract_model_config: thinking_config={list(thinking_config.keys())}"
+        )
+
+    # Temperature override from env (user-configured, overrides default)
+    temperature = env.get("temperature")
+    if temperature is not None:
+        logger.info(
+            f"[model_resolver] _extract_model_config: temperature={temperature}"
         )
 
     return {
@@ -762,6 +770,8 @@ def _extract_model_config(model_spec: Dict[str, Any]) -> Dict[str, Any]:
         "videoConfig": video_config,
         # Thinking/reasoning config (provider-native passthrough)
         "think_config": thinking_config,
+        # User-configured temperature override
+        "temperature": temperature,
     }
 
 

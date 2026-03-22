@@ -246,6 +246,11 @@ class LangChainModelFactory:
         model_type = model_config.get("model", "openai")
         think_config = model_config.get("think_config")
 
+        # User-configured temperature from model env takes priority over kwargs
+        config_temperature = model_config.get("temperature")
+        if config_temperature is not None:
+            kwargs["temperature"] = config_temperature
+
         # Log API format if using Responses API
         api_format_log = ""
         if cfg.get("api_format") == "responses":

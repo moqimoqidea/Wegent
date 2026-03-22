@@ -10,7 +10,7 @@ through normal chunks unchanged.
 """
 
 import pytest
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 from langchain_openai.chat_models.base import ChatGenerationChunk
 
 from chat_shell.models.openai_reasoning import ChatOpenAIWithReasoning
@@ -136,3 +136,53 @@ class TestConvertChunkToGenerationChunk:
         assert result is not None
         # Empty string is falsy, should not be injected
         assert "reasoning_content" not in result.message.additional_kwargs
+
+
+class TestGetRequestPayload:
+    """Tests for _get_request_payload reasoning_content injection."""
+
+    def test_injects_reasoning_content_into_assistant_messages(self, model):
+        """reasoning_content in AIMessage.additional_kwargs → injected into payload."""
+        messages = [
+            SystemMessage(content="You are helpful"),
+            HumanMessage(content="hello"),
+            AIMessage(
+                content="Let me help",
+                additional_kwargs={"reasoning_content": "Thinking about this..."},
+                tool_calls=[{
+                    "id": "call_1",
+                    "name": "search",
+                    "args": {"q": "test"},
+                }],
+            ),
+        ]
+
+        payload = model._get_request_payload(messages)
+
+        assert "messages" in payload
+        # The assistant message at index 2 should have reasoning_content
+        assistant_msg = payload["messages"][2]
+        assert assistant_msg["role"] == "assistant"
+        assert assistant_msg["reasoning_content"] == "Thinking about this..."
+
+    def test_no_injection_when_no_reasoning(self, model):
+        """AIMessage without reasoning_content → no reasoning_content in payload."""
+        messages = [
+            HumanMessage(content="hello"),
+            AIMessage(content="Hi there!"),
+        ]
+
+        payload = model._get_request_payload(messages)
+
+        assistant_msg = payload["messages"][1]
+        assert assistant_msg["role"] == "assistant"
+        assert "reasoning_content" not in assistant_msg
+
+    def test_preserves_other_payload_fields(self, model):
+        """Payload's model, temperature, etc. remain unchanged."""
+        messages = [HumanMessage(content="test")]
+
+        payload = model._get_request_payload(messages)
+
+        assert payload.get("model") == "gpt-4"
+        assert "messages" in payload
