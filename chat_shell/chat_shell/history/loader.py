@@ -459,9 +459,13 @@ def _build_history_messages(
         is_structured_prompt = bool(extra_blocks) or text_content != raw_prompt
 
         # For group chat, prefix is already embedded by build_messages when the
-        # message was first sent, so we only add it for plain-text (legacy) prompts.
-        if is_group_chat and sender_username and not is_structured_prompt:
-            text_content = f"User[{sender_username}]: {text_content}"
+        # message was first sent.  However legacy structured prompts (JSON arrays
+        # stored before the prefix-baking change) may lack the prefix.  Check the
+        # actual text content instead of relying solely on the format flag.
+        if is_group_chat and sender_username:
+            expected_prefix = f"User[{sender_username}]:"
+            if not text_content.lstrip().startswith(expected_prefix):
+                text_content = f"User[{sender_username}]: {text_content}"
 
         # Load all contexts in one query and separate by type
         all_contexts = (

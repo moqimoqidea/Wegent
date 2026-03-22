@@ -246,10 +246,15 @@ def subtask_to_messages(
                 reasoning_content=msg.get("reasoning_content"),
                 created_at=created_at,
             )
-            # Attach loaded_skills to the last assistant message
-            if loaded_skills and role == "assistant" and idx == len(messages_chain) - 1:
-                resp.loaded_skills = loaded_skills
             responses.append(resp)
+        # Attach loaded_skills to the last *assistant* message in the chain,
+        # mirroring the package-mode backward scan so that skill state is
+        # restored even when the chain ends with a tool message.
+        if loaded_skills:
+            for resp in reversed(responses):
+                if resp.role == "assistant":
+                    resp.loaded_skills = loaded_skills
+                    break
         return responses
 
     # Fallback for legacy data without messages_chain
@@ -287,10 +292,14 @@ def _build_user_message_content(
     # extra_blocks is empty (e.g. a single-block array after image stripping).
     is_structured_prompt = bool(extra_blocks) or text_content != raw_prompt
 
-    # Only apply the group-chat prefix when the message wasn't stored in the new
-    # multi-block array format (which already has the prefix baked in).
-    if is_group_chat and sender_username and not is_structured_prompt:
-        text_content = f"User[{sender_username}]: {text_content}"
+    # For group chat, prefix is already embedded by build_messages when the
+    # message was first sent.  However legacy structured prompts (JSON arrays
+    # stored before the prefix-baking change) may lack the prefix.  Check the
+    # actual text content instead of relying solely on the format flag.
+    if is_group_chat and sender_username:
+        expected_prefix = f"User[{sender_username}]:"
+        if not text_content.lstrip().startswith(expected_prefix):
+            text_content = f"User[{sender_username}]: {text_content}"
 
     # Load all contexts in one query and separate by type
     all_contexts = (

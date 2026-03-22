@@ -107,8 +107,9 @@ def _parse_block_list(
                 user_text = extract_user_question(text)
             continue
 
-        # Old-format <attachment> block → discard (rebuilt from SubtaskContext)
-        if text.lstrip().startswith("<attachment>"):
+        # System-context blocks (<attachment>, <selected_documents>, etc.)
+        # are discarded — they are rebuilt from SubtaskContext at load time.
+        if _is_system_context_block(text):
             continue
 
         # First non-system text block → user message

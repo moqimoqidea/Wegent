@@ -300,3 +300,71 @@ class TestParsePromptBlocks:
         assert text_content == "User message"
         assert len(extra) == 1
         assert extra[0]["text"] == "Extra context"
+
+    def test_legacy_selected_documents_first_block(self):
+        """Legacy selected_documents block should be discarded, not treated as user text."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "<selected_documents>docs</selected_documents>"},
+                {"type": "text", "text": "real user question"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "real user question"
+        assert extra == []
+
+    def test_legacy_selected_documents_with_system_reminder(self):
+        """Legacy selected_documents + user question + system-reminder."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "<selected_documents>docs here</selected_documents>"},
+                {"type": "text", "text": "What does this mean?"},
+                {"type": "text", "text": "<system-reminder><CurrentTime>2025-01-01</CurrentTime></system-reminder>"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "What does this mean?"
+        assert len(extra) == 1
+        assert "<system-reminder>" in extra[0]["text"]
+
+    def test_all_system_context_blocks_discarded(self):
+        """All system context prefixes are discarded when user text follows."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "<attachment>meta</attachment>"},
+                {"type": "text", "text": "<selected_documents>docs</selected_documents>"},
+                {"type": "text", "text": "actual question"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "actual question"
+        assert extra == []
+
+    def test_only_system_context_blocks_falls_back_to_raw(self):
+        """When all text blocks are system context, fall back to raw_prompt."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "<selected_documents>docs</selected_documents>"},
+                {"type": "text", "text": "<attachment>meta</attachment>"},
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        # No user text found → falls back to raw_prompt
+        assert text_content == raw
+        assert extra == []

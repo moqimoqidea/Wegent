@@ -641,3 +641,76 @@ class TestCacheBreakpoints:
         elif isinstance(current_msg["content"], list):
             for block in current_msg["content"]:
                 assert "cache_control" not in block
+
+
+class TestMixedOldNewHistoryConversion:
+    """Regression tests for mixed old-format and new-format messages through conversion."""
+
+    def test_old_plain_history_plus_new_structured_user(self):
+        """Old plain-text history messages followed by new structured user message."""
+        history = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="Follow-up question",
+            system_prompt="System",
+            inject_datetime=True,
+        )
+        # system + 2 history + 1 current (structured)
+        assert len(messages) == 4
+        assert messages[1]["content"] == "Hi"
+        assert messages[2]["content"] == "Hello!"
+        current = messages[3]
+        assert isinstance(current["content"], list)
+        assert current["content"][0]["text"] == "Follow-up question"
+        assert "<system-reminder>" in current["content"][1]["text"]
+
+    def test_mixed_history_with_tool_chain(self):
+        """Old plain messages + new structured user + new tool chain in history."""
+        history = [
+            {"role": "user", "content": "old plain message"},
+            {"role": "assistant", "content": "old plain response"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "new structured message"},
+                    {"type": "text", "text": "<system-reminder>time</system-reminder>"},
+                ],
+            },
+            {"role": "assistant", "content": "new text response"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "search", "arguments": "{}"}}],
+            },
+            {"role": "tool", "content": "tool result", "tool_call_id": "call_1"},
+            {"role": "assistant", "content": "final answer"},
+        ]
+        messages = MessageConverter.build_messages(
+            history=history,
+            current_message="Next question",
+            system_prompt="System",
+            inject_datetime=False,
+        )
+        # system + 7 history + 1 current
+        assert len(messages) == 9
+        roles = [m["role"] for m in messages]
+        assert roles == [
+            "system", "user", "assistant", "user", "assistant",
+            "assistant", "tool", "assistant", "user",
+        ]
+
+    def test_old_plain_history_group_chat_prefix(self):
+        """Group-chat prefix for plain old history content must be added."""
+        messages = MessageConverter.build_messages(
+            history=[],
+            current_message="Hello everyone",
+            system_prompt="",
+            username="Alice",
+            inject_datetime=True,
+        )
+        user_msg = messages[-1]
+        assert isinstance(user_msg["content"], list)
+        assert user_msg["content"][0]["text"].startswith("User[Alice]:")
