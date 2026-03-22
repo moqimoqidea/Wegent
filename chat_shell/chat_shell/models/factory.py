@@ -53,7 +53,7 @@ _PROVIDER_ALIASES = {
 _PROVIDER_THINK_KEYS: dict[str, set[str]] = {
     "anthropic": {"thinking", "effort"},
     "openai": {"reasoning_effort"},
-    "google": {"thinking_level", "thinking_budget"},
+    "google": {"thinking_level", "thinking_budget", "include_thoughts"},
 }
 
 
