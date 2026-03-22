@@ -22,6 +22,8 @@ from langchain_openai import ChatOpenAI
 
 from shared.telemetry.decorators import add_span_event, trace_sync
 
+from .openai_reasoning import ChatOpenAIWithReasoning
+
 logger = logging.getLogger(__name__)
 
 # Provider detection: (prefixes, provider_name)
@@ -40,6 +42,46 @@ _PROVIDER_ALIASES = {
     "google": "google",
     "gemini": "google",
 }
+
+# Allowed think_config keys per provider, mapped directly to constructor params.
+# NOTE: Only keys that are safe as direct constructor params belong here.
+# For openai, "reasoning" (dict) is NOT whitelisted because setting it as a
+# direct ChatOpenAI param implicitly activates the Responses API format
+# ("input" instead of "messages"), breaking OpenAI-compatible providers like
+# OpenRouter.  Instead, "reasoning" falls through to extra_body, which merges
+# it into the request body while keeping the Chat Completions format.
+_PROVIDER_THINK_KEYS: dict[str, set[str]] = {
+    "anthropic": {"thinking", "effort"},
+    "openai": {"reasoning_effort"},
+    "google": {"thinking_level", "thinking_budget"},
+}
+
+
+def _extract_think_params(provider: str, think_config: dict | None) -> dict:
+    """Extract provider-specific thinking params from think_config.
+
+    For known providers, only whitelisted keys are passed through.
+    For OpenAI-compatible providers with unrecognized keys (e.g. Kimi's 'thinking'),
+    extra keys are merged into 'extra_body' for passthrough.
+    """
+    if not think_config:
+        return {}
+
+    allowed = _PROVIDER_THINK_KEYS.get(provider, set())
+    params: dict = {}
+    extra_body: dict = {}
+
+    for key, value in think_config.items():
+        if key in allowed:
+            params[key] = value
+        elif provider == "openai" and key not in allowed:
+            # Unknown keys for openai provider go into extra_body (e.g. Kimi thinking)
+            extra_body[key] = value
+
+    if extra_body:
+        params["extra_body"] = extra_body
+
+    return params
 
 
 def _detect_provider(model_type: str, model_id: str) -> str:
@@ -181,6 +223,7 @@ class LangChainModelFactory:
                 - default_headers: Optional custom headers
                 - api_format: Optional API format for OpenAI ("chat/completions" or "responses")
                 - max_output_tokens: Optional max output tokens from Model CRD spec
+                - think_config: Optional provider-native thinking/reasoning params
             **kwargs: Additional parameters (temperature, max_tokens, streaming)
 
         Returns:
@@ -201,6 +244,7 @@ class LangChainModelFactory:
             ),
         }
         model_type = model_config.get("model", "openai")
+        think_config = model_config.get("think_config")
 
         # Log API format if using Responses API
         api_format_log = ""
@@ -228,10 +272,47 @@ class LangChainModelFactory:
         # Filter out None values to use defaults
         params = {k: v for k, v in params.items() if v is not None}
 
+        # Apply thinking/reasoning configuration from think_config
+        use_reasoning_wrapper = False
+        if think_config:
+            think_params = _extract_think_params(provider, think_config)
+            if think_params:
+                # For Anthropic: thinking mode requires temperature=1
+                if provider == "anthropic" and "thinking" in think_params:
+                    params["temperature"] = 1.0
+                    logger.info(
+                        "Anthropic thinking enabled: forcing temperature=1.0"
+                    )
+
+                # For OpenAI-compatible providers: use reasoning-aware subclass
+                # to capture reasoning_content from non-standard deltas
+                if provider == "openai":
+                    use_reasoning_wrapper = True
+
+                # Merge extra_body with existing extra_body if present
+                if "extra_body" in think_params and "extra_body" in params:
+                    params["extra_body"] = {
+                        **params["extra_body"],
+                        **think_params.pop("extra_body"),
+                    }
+
+                params.update(think_params)
+                logger.info(
+                    "Applied think_config for provider=%s: keys=%s",
+                    provider,
+                    list(think_params.keys()),
+                )
+
+        # Use ChatOpenAIWithReasoning for OpenAI providers with think_config
+        # to capture reasoning_content from non-standard API responses
+        model_class = provider_cfg["class"]
+        if use_reasoning_wrapper and model_class is ChatOpenAI:
+            model_class = ChatOpenAIWithReasoning
+
         add_span_event(
-            "instantiating_model_class", {"class": provider_cfg["class"].__name__}
+            "instantiating_model_class", {"class": model_class.__name__}
         )
-        model = provider_cfg["class"](**params)
+        model = model_class(**params)
         add_span_event("model_instance_created")
         return model
 

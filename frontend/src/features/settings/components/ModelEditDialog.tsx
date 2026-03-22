@@ -101,6 +101,7 @@ export interface ModelInitialData {
   rerankConfig?: RerankConfig
   videoConfig?: VideoGenerationConfig
   imageConfig?: import('@/apis/models').ImageGenerationConfig
+  thinkingConfig?: Record<string, unknown>
 }
 
 interface ModelEditDialogProps {
@@ -265,6 +266,7 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
             sttConfig: model.spec.sttConfig,
             embeddingConfig: model.spec.embeddingConfig,
             rerankConfig: model.spec.rerankConfig,
+            thinkingConfig: model.spec.thinkingConfig as Record<string, unknown> | undefined,
           }
         : null)
     )
@@ -290,6 +292,9 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
   // LLM-specific config state
   const [contextWindow, setContextWindow] = useState<number | undefined>(undefined)
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>(undefined)
+  // Thinking/Reasoning config (JSON passthrough)
+  const [thinkingConfigStr, setThinkingConfigStr] = useState('')
+  const [thinkingConfigError, setThinkingConfigError] = useState('')
 
   // Type-specific config state
   // TTS
@@ -432,6 +437,13 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
         // Load LLM-specific configs
         setContextWindow(effectiveInitialData.contextWindow)
         setMaxOutputTokens(effectiveInitialData.maxOutputTokens)
+        // Load thinking config
+        if (effectiveInitialData.thinkingConfig && Object.keys(effectiveInitialData.thinkingConfig).length > 0) {
+          setThinkingConfigStr(JSON.stringify(effectiveInitialData.thinkingConfig, null, 2))
+        } else {
+          setThinkingConfigStr('')
+        }
+        setThinkingConfigError('')
       } else {
         // Reset for new model
         setModelIdName('')
@@ -469,6 +481,8 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
         // Reset LLM-specific configs
         setContextWindow(undefined)
         setMaxOutputTokens(undefined)
+        setThinkingConfigStr('')
+        setThinkingConfigError('')
       }
       setCustomHeadersError('')
       setModelIdNameError('')
@@ -815,6 +829,30 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
     validateCustomHeaders(value)
   }
 
+  const validateThinkingConfig = (value: string): Record<string, unknown> | null => {
+    if (!value.trim()) {
+      setThinkingConfigError('')
+      return {}
+    }
+    try {
+      const parsed = JSON.parse(value)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        setThinkingConfigError(t('common:models.errors.thinking_config_invalid_object'))
+        return null
+      }
+      setThinkingConfigError('')
+      return parsed as Record<string, unknown>
+    } catch {
+      setThinkingConfigError(t('common:models.errors.thinking_config_invalid_json'))
+      return null
+    }
+  }
+
+  const handleThinkingConfigChange = (value: string) => {
+    setThinkingConfigStr(value)
+    validateThinkingConfig(value)
+  }
+
   const handleModelIdNameChange = (value: string) => {
     setModelIdName(value)
     validateModelIdName(value)
@@ -868,6 +906,16 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
       toast({
         variant: 'destructive',
         title: t('common:models.errors.custom_headers_invalid'),
+      })
+      return
+    }
+
+    // Validate thinking config if provided
+    const parsedThinkingConfig = validateThinkingConfig(thinkingConfigStr)
+    if (parsedThinkingConfig === null) {
+      toast({
+        variant: 'destructive',
+        title: t('common:models.errors.thinking_config_invalid_json'),
       })
       return
     }
@@ -1002,6 +1050,8 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
           ...(rerankConfig && { rerankConfig }),
           ...(videoConfig && { videoConfig }),
           ...(imageGenerationConfig && { imageConfig: imageGenerationConfig }),
+          // Thinking/reasoning config for LLM models
+          ...(modelCategoryType === 'llm' && parsedThinkingConfig && Object.keys(parsedThinkingConfig).length > 0 && { thinkingConfig: parsedThinkingConfig }),
         },
         status: {
           state: 'Available',
@@ -1394,6 +1444,25 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
                   {t('common:models.max_output_tokens_hint')}
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Thinking/Reasoning Config - JSON passthrough for LLM models */}
+          {modelCategoryType === 'llm' && (
+            <div className="space-y-2">
+              <Label htmlFor="thinking_config" className="text-sm font-medium">
+                {t('common:models.thinking_config')}
+              </Label>
+              <Textarea
+                id="thinking_config"
+                data-testid="thinking-config-input"
+                value={thinkingConfigStr}
+                onChange={e => handleThinkingConfigChange(e.target.value)}
+                placeholder={`{\n  "thinking": { "type": "enabled" }\n}`}
+                className={`bg-base font-mono text-sm min-h-[80px] ${thinkingConfigError ? 'border-error' : ''}`}
+              />
+              {thinkingConfigError && <p className="text-xs text-error">{thinkingConfigError}</p>}
+              <p className="text-xs text-text-muted">{t('common:models.thinking_config_hint')}</p>
             </div>
           )}
 

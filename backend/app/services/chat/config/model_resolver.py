@@ -737,6 +737,13 @@ def _extract_model_config(model_spec: Dict[str, Any]) -> Dict[str, Any]:
     # Video generation config (when modelType='video')
     video_config = model_spec.get("videoConfig")
 
+    # Thinking/reasoning config (provider-native passthrough)
+    thinking_config = model_spec.get("thinkingConfig")
+    if thinking_config:
+        logger.info(
+            f"[model_resolver] _extract_model_config: thinkingConfig={list(thinking_config.keys())}"
+        )
+
     return {
         "api_key": api_key,
         "base_url": base_url,
@@ -753,6 +760,8 @@ def _extract_model_config(model_spec: Dict[str, Any]) -> Dict[str, Any]:
         "modelType": model_category_type,
         # Video generation config (resolution, ratio, duration, etc.)
         "videoConfig": video_config,
+        # Thinking/reasoning config (provider-native passthrough)
+        "think_config": thinking_config,
     }
 
 
