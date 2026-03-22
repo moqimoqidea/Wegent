@@ -24,7 +24,6 @@ from sqlalchemy.orm import Session
 from app.models.knowledge import KnowledgeDocument
 from app.models.subtask_context import ContextStatus, ContextType, SubtaskContext
 
-
 logger = logging.getLogger(__name__)
 
 # Default context window size (same as InjectionStrategy.DEFAULT_CONTEXT_WINDOW)

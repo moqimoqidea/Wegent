@@ -242,9 +242,7 @@ def _combine_text_contents(
         List of content blocks: attachment metadata block(s) followed by the
         user message block (always last).
     """
-    attachment_text = (
-        "<attachment>" + "".join(text_contents) + "</attachment>"
-    )
+    attachment_text = "<attachment>" + "".join(text_contents) + "</attachment>"
     return [
         {"type": "input_text", "text": attachment_text},
         {"type": "input_text", "text": message},
@@ -1047,9 +1045,7 @@ async def _process_attachment_contexts_for_message(
 
     # If only text contents, combine them as list format
     if text_contents:
-        attachment_text = (
-            "<attachment>" + "".join(text_contents) + "</attachment>"
-        )
+        attachment_text = "<attachment>" + "".join(text_contents) + "</attachment>"
         return [
             {"type": "input_text", "text": attachment_text},
             {"type": "input_text", "text": message},
