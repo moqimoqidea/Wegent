@@ -1291,10 +1291,17 @@ class ChatNamespace(socketio.AsyncNamespace):
                         )
                         break
 
+            # Extract original user text from stored prompt.
+            # After deep-thinking persistence, user_subtask.prompt may be a
+            # JSON-serialized content array (e.g. '[{"type":"text","text":"hello"}, ...]').
+            # Passing that string as-is would cause MessageConverter.build_messages
+            # to treat it as plain text and wrap it again, producing double-layered nesting.
+            user_message = extract_display_prompt(user_subtask.prompt) or ""
+
             retry_payload = ChatSendPayload(
                 task_id=payload.task_id,
                 team_id=team.id,
-                message=user_subtask.prompt or "",
+                message=user_message,
                 attachment_id=attachment_id,
                 force_override_bot_model=model_id,
                 force_override_bot_model_type=model_type,
@@ -1309,7 +1316,7 @@ class ChatNamespace(socketio.AsyncNamespace):
                 assistant_subtask=failed_ai_subtask,  # Reuse the same subtask
                 team=team,
                 user=user,
-                message=user_subtask.prompt or "",
+                message=user_message,
                 payload=retry_payload,
                 task_room=task_room,
                 device_id=device_id,

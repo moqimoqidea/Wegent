@@ -125,3 +125,51 @@ class TestExtractDisplayPrompt:
             ]
         )
         assert extract_display_prompt(prompt) == "What does this mean?"
+
+    def test_double_wrapped_prompt_returns_inner_text(self):
+        """Double-wrapped prompt: outer layer is a JSON-serialized inner array.
+
+        This reproduces the bug where a retry passes an already-formatted prompt
+        through MessageConverter.build_messages a second time, producing:
+            [{"type":"text","text":"[inner JSON string]"}, {"type":"text","text":"<system-reminder>..."}]
+        extract_display_prompt must return the inner JSON string (the outer first text block).
+        """
+        inner = json.dumps(
+            [
+                {"type": "text", "text": "hello"},
+                {
+                    "type": "text",
+                    "text": "<system-reminder><CurrentTime>2026-03-22 19:14</CurrentTime></system-reminder>",
+                },
+            ]
+        )
+        double_wrapped = json.dumps(
+            [
+                {"type": "text", "text": inner},
+                {
+                    "type": "text",
+                    "text": "<system-reminder><CurrentTime>2026-03-22 19:15</CurrentTime></system-reminder>",
+                },
+            ]
+        )
+        # The outer first text block is the serialized inner array.
+        # Since that inner array is not a system-reminder, it is returned as-is.
+        assert extract_display_prompt(double_wrapped) == inner
+
+    def test_formatted_prompt_returns_original_user_text(self):
+        """After deep-thinking persistence, the stored prompt is a JSON content
+        array.  extract_display_prompt must recover the original user text.
+        """
+        prompt = json.dumps(
+            [
+                {"type": "text", "text": "What is the weather today?"},
+                {
+                    "type": "text",
+                    "text": "<system-reminder><CurrentTime>2026-03-22 19:14</CurrentTime></system-reminder>",
+                },
+            ]
+        )
+        assert (
+            extract_display_prompt(prompt)
+            == "What is the weather today?"
+        )
