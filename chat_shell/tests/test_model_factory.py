@@ -348,11 +348,13 @@ class TestCreateFromConfigTemperature:
 
     @patch("chat_shell.models.factory.add_span_event")
     @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)
-    def test_no_temperature_anywhere_uses_default(self, _span):
-        """No temperature → default 1.0."""
+    def test_no_temperature_anywhere_uses_provider_default(self, _span):
+        """No temperature → not passed to constructor, provider uses its own default."""
         config = self._base_config()
         model = LangChainModelFactory.create_from_config(config)
-        assert model.temperature == 1.0
+        # When no temperature is configured, it's not passed to the LLM constructor,
+        # so the provider class uses its own default (ChatOpenAI defaults to None)
+        assert model.temperature is None
 
     @patch("chat_shell.models.factory.add_span_event")
     @patch("chat_shell.models.factory.trace_sync", lambda **kw: lambda fn: fn)

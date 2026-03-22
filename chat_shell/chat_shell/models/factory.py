@@ -127,7 +127,7 @@ class LangChainModelFactory:
                 "model": cfg["model_id"],
                 "api_key": cfg["api_key"],
                 "base_url": cfg.get("base_url") or None,
-                "temperature": kw.get("temperature", 1.0),
+                "temperature": kw.get("temperature"),
                 "max_tokens": cfg.get("max_tokens"),
                 "streaming": kw.get("streaming", False),
                 "model_kwargs": (
@@ -159,7 +159,7 @@ class LangChainModelFactory:
                     else ("dummy" if cfg.get("base_url") else None)
                 ),
                 "anthropic_api_url": cfg.get("base_url") or None,
-                "temperature": kw.get("temperature", 1.0),
+                "temperature": kw.get("temperature"),
                 "max_tokens": cfg.get("max_tokens"),
                 "streaming": kw.get("streaming", False),
                 # Caching strategy:
@@ -191,7 +191,7 @@ class LangChainModelFactory:
                     else ("dummy" if cfg.get("base_url") else None)
                 ),
                 "base_url": cfg.get("base_url") or None,
-                "temperature": kw.get("temperature", 1.0),
+                "temperature": kw.get("temperature"),
                 "max_output_tokens": cfg.get("max_tokens"),
                 "streaming": kw.get("streaming", False),
                 "additional_headers": cfg.get("default_headers") or None,
