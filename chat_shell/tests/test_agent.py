@@ -90,7 +90,7 @@ class TestMessageBuilding:
         # New format: list with system-reminder block
         assert isinstance(content, list)
         all_texts = [b["text"] for b in content if b.get("type") == "text"]
-        assert any("[Current time:" in t for t in all_texts)
+        assert any("<CurrentTime>" in t for t in all_texts)
 
     def test_datetime_not_injected_when_disabled(self):
         """Test that datetime is NOT injected when inject_datetime=False.
@@ -106,7 +106,7 @@ class TestMessageBuilding:
 
         user_msg = next((m for m in messages if m["role"] == "user"), None)
         assert user_msg is not None
-        assert "[Current time:" not in user_msg["content"]
+        assert "<CurrentTime>" not in user_msg["content"]
         assert user_msg["content"] == "Hello"
 
 
@@ -143,7 +143,7 @@ class TestChatAgentBuildMessages:
         content = user_msg["content"]
         assert isinstance(content, list)
         all_texts = [b["text"] for b in content if b.get("type") == "text"]
-        assert any("[Current time:" in t for t in all_texts)
+        assert any("<CurrentTime>" in t for t in all_texts)
 
     def test_build_messages_with_enable_deep_thinking_false(self):
         """Test that datetime is NOT injected when enable_deep_thinking=False.
@@ -168,7 +168,7 @@ class TestChatAgentBuildMessages:
 
         user_msg = next((m for m in messages if m["role"] == "user"), None)
         assert user_msg is not None
-        assert "[Current time:" not in user_msg["content"]
+        assert "<CurrentTime>" not in user_msg["content"]
         assert user_msg["content"] == "Hello"
 
     def test_build_messages_explicit_inject_datetime_overrides_config(self):
@@ -192,7 +192,7 @@ class TestChatAgentBuildMessages:
 
         user_msg = next((m for m in messages if m["role"] == "user"), None)
         assert user_msg is not None
-        assert "[Current time:" not in user_msg["content"]
+        assert "<CurrentTime>" not in user_msg["content"]
 
     def test_build_messages_without_config_defaults_to_inject_datetime(self):
         """Test that without config, datetime is injected as system-reminder block by default (backward compatibility)."""
@@ -212,7 +212,7 @@ class TestChatAgentBuildMessages:
         content = user_msg["content"]
         assert isinstance(content, list)
         all_texts = [b["text"] for b in content if b.get("type") == "text"]
-        assert any("[Current time:" in t for t in all_texts)
+        assert any("<CurrentTime>" in t for t in all_texts)
 
 
 class TestNeedsExplicitCacheBreakpoints:

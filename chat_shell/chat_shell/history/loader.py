@@ -23,7 +23,7 @@ import logging
 from typing import Any, List, Optional
 
 from chat_shell.core.config import settings
-from shared.prompts.constants import USER_QUESTION_MARKER, parse_prompt_blocks
+from shared.prompts.constants import parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -573,63 +573,103 @@ def _build_history_messages(
                         )
                     break
 
-        # Combine all text parts with XML tags:
-        # - attachments wrapped in <attachment> tag
-        # - knowledge bases wrapped in <knowledge_base> tag
+        # Output assembly.
         #
-        # When is_structured_prompt is true the prompt was stored in the new
-        # multi-block array format by update_user_message_content.  In that
-        # case text_content was produced by _build_vision_structure and already
-        # embeds ALL attachment headers (both doc text and image metadata) inside
-        # its <attachment> block.  Re-adding them here would produce duplicates,
-        # so we skip attachment_text_parts.  Knowledge-base content is never
-        # stored inside text_content, so it is always added.
-        combined_prefix = ""
-        if attachment_text_parts and not is_structured_prompt:
-            combined_prefix += (
-                "<attachment>\n" + "".join(attachment_text_parts) + "</attachment>\n\n"
+        # When extra_blocks is present (new format), the stored system-reminder
+        # already contains all context metadata + time.  Pass it through as-is
+        # to avoid duplication.  We only need DB contexts for image base64.
+        #
+        # When extra_blocks is empty (old format), rebuild a system-reminder
+        # from the DB context records.
+        if extra_blocks:
+            if vision_parts:
+                return [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": text_content},
+                            *vision_parts,
+                            *extra_blocks,
+                        ],
+                    }
+                ]
+            return [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text_content},
+                        *extra_blocks,
+                    ],
+                }
+            ]
+
+        # Old format fallback: rebuild system-reminder from DB context records.
+        context_parts: list[str] = []
+        if attachment_text_parts:
+            context_parts.append(
+                "<attachment>" + "".join(attachment_text_parts) + "</attachment>"
             )
         if kb_text_parts:
-            combined_prefix += (
-                "<knowledge_base>\n" + "".join(kb_text_parts) + "</knowledge_base>\n\n"
+            context_parts.append(
+                "<knowledge_base>" + "".join(kb_text_parts) + "</knowledge_base>"
             )
 
-        if combined_prefix:
-            # Add the [User Question]: marker between context and user text to
-            # match the format produced by the context preprocessor on first
-            # send.  Skip when text_content already contains the marker (e.g.
-            # from the multi-block stored format that embeds attachments).
-            if USER_QUESTION_MARKER not in text_content:
-                text_content = (
-                    f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
-                )
-            else:
-                text_content = f"{combined_prefix}{text_content}"
-
         if vision_parts:
-            # Add image metadata headers to text content for reference.
-            # Wrap image metadata in <attachment> tag for consistency with first
-            # upload.  Skip when is_structured_prompt: the metadata is already
-            # baked into text_content (see note above).
-            if image_metadata_headers and not is_structured_prompt:
-                headers_text = "\n\n".join(image_metadata_headers)
-                text_content = (
-                    f"<attachment>\n{headers_text}\n</attachment>\n\n{text_content}"
-                )
-            # Place text first, then images, then any extra blocks (e.g. system-reminder)
-            multimodal_blocks: list[dict[str, Any]] = [
-                {"type": "text", "text": text_content},
-                *vision_parts,
-                *extra_blocks,
-            ]
+            # Add image metadata headers as attachment context
+            if image_metadata_headers:
+                img_text = "".join(image_metadata_headers)
+                if not context_parts or not context_parts[0].startswith("<attachment>"):
+                    context_parts.insert(
+                        0, f"<attachment>{img_text}</attachment>"
+                    )
+                else:
+                    old = context_parts[0]
+                    inner = old[len("<attachment>"):-len("</attachment>")]
+                    context_parts[0] = (
+                        f"<attachment>{img_text}{inner}</attachment>"
+                    )
+
+            if context_parts:
+                inner = "".join(context_parts)
+                reminder_block = {
+                    "type": "text",
+                    "text": f"<system-reminder>{inner}</system-reminder>",
+                }
+                multimodal_blocks: list[dict[str, Any]] = [
+                    {"type": "text", "text": text_content},
+                    *vision_parts,
+                    reminder_block,
+                ]
+            else:
+                multimodal_blocks = [
+                    {"type": "text", "text": text_content},
+                    *vision_parts,
+                ]
             return [{"role": "user", "content": multimodal_blocks}]
+
         # Text-only path
-        if is_structured_prompt:
-            text_only_blocks: list[dict[str, Any]] = [
-                {"type": "text", "text": text_content},
-                *extra_blocks,
+        if context_parts:
+            inner = "".join(context_parts)
+            reminder_block = {
+                "type": "text",
+                "text": f"<system-reminder>{inner}</system-reminder>",
+            }
+            return [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text_content},
+                        reminder_block,
+                    ],
+                }
             ]
-            return [{"role": "user", "content": text_only_blocks}]
+        if is_structured_prompt:
+            return [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": text_content}],
+                }
+            ]
         return [{"role": "user", "content": text_content}]
 
     elif subtask.role == SubtaskRole.ASSISTANT:

@@ -30,7 +30,6 @@ from shared.prompts import (
     KB_PROMPT_RESTRICTED_ANALYST,
     KB_PROMPT_STRICT,
 )
-from shared.prompts.constants import USER_QUESTION_MARKER
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +201,7 @@ def _build_vision_structure(
     # 1. Attachment metadata block (only when there is something to show)
     if all_attachment_parts:
         attachment_text = (
-            "<attachment>\n" + "\n\n".join(all_attachment_parts) + "\n</attachment>"
+            "<attachment>" + "".join(all_attachment_parts) + "</attachment>"
         )
         content.append({"type": "input_text", "text": attachment_text})
 
@@ -221,30 +220,35 @@ def _build_vision_structure(
     # 3. User message as its own text block — keeps it isolated from attachment
     #    metadata so the model sees the question without extra noise, and so the
     #    exact user text is preserved for prefix-cache stability.
-    #    The USER_QUESTION_MARKER delimiter allows downstream consumers
-    #    (e.g. ImageAgent._normalize_prompt) to separate the user's question
-    #    from attachment metadata when concatenating all input_text blocks.
-    content.append({"type": "input_text", "text": f"{USER_QUESTION_MARKER}\n{message}"})
+    content.append({"type": "input_text", "text": message})
 
     return content
 
 
-def _combine_text_contents(text_contents: List[str], message: str) -> str:
-    """
-    Combine text contents with user message.
+def _combine_text_contents(
+    text_contents: List[str], message: str
+) -> list[dict[str, Any]]:
+    """Combine text contents with user message.
+
+    Returns a list of content blocks in OpenAI Responses API format so that
+    the downstream converter can cleanly separate the user message from
+    system context (attachment metadata) and wrap them in ``<system-reminder>``.
 
     Args:
         text_contents: List of text content strings (attachment contents without XML tags)
         message: Original user message
 
     Returns:
-        Combined message string with all attachments wrapped in a single <attachment> XML tag
+        List of content blocks: attachment metadata block(s) followed by the
+        user message block (always last).
     """
-    # Wrap all attachment contents in a single <attachment> XML tag
-    combined_contents = (
-        "<attachment>\n" + "\n\n".join(text_contents) + "\n</attachment>\n\n"
+    attachment_text = (
+        "<attachment>" + "".join(text_contents) + "</attachment>"
     )
-    return f"{combined_contents}{USER_QUESTION_MARKER}\n{message}"
+    return [
+        {"type": "input_text", "text": attachment_text},
+        {"type": "input_text", "text": message},
+    ]
 
 
 def _process_attachment_context(
@@ -1041,13 +1045,15 @@ async def _process_attachment_contexts_for_message(
     if image_contents:
         return _build_vision_structure(text_contents, image_contents, message)
 
-    # If only text contents, combine them with <attachment> XML tag
+    # If only text contents, combine them as list format
     if text_contents:
-        # Wrap all attachment contents in a single <attachment> XML tag
-        combined_contents = (
-            "<attachment>\n" + "\n\n".join(text_contents) + "\n</attachment>\n\n"
+        attachment_text = (
+            "<attachment>" + "".join(text_contents) + "</attachment>"
         )
-        return f"{combined_contents}{USER_QUESTION_MARKER}\n{message}"
+        return [
+            {"type": "input_text", "text": attachment_text},
+            {"type": "input_text", "text": message},
+        ]
 
     # Return original message if no attachment contents were processed
     return message

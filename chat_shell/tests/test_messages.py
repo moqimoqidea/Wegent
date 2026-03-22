@@ -57,7 +57,7 @@ class TestMessageConverterBuildMessages:
         system_block = user_msg["content"][1]
         assert system_block["type"] == "text"
         assert "<system-reminder>" in system_block["text"]
-        assert "[Current time:" in system_block["text"]
+        assert "<CurrentTime>" in system_block["text"]
         assert datetime.now().strftime("%Y-%m-%d") in system_block["text"]
 
     def test_build_messages_without_datetime_injection(self):
@@ -74,7 +74,7 @@ class TestMessageConverterBuildMessages:
 
         user_msg = messages[-1]
         assert user_msg["role"] == "user"
-        assert "[Current time:" not in user_msg["content"]
+        assert "<CurrentTime>" not in user_msg["content"]
         assert user_msg["content"] == "Hello"
 
     def test_build_messages_default_injects_datetime(self):
@@ -91,7 +91,7 @@ class TestMessageConverterBuildMessages:
         # New format: list with system-reminder block
         assert isinstance(content, list)
         system_block_texts = [b["text"] for b in content if b.get("type") == "text"]
-        assert any("[Current time:" in t for t in system_block_texts)
+        assert any("<CurrentTime>" in t for t in system_block_texts)
 
     def test_build_messages_with_history(self):
         """Test that history is preserved."""
@@ -329,59 +329,57 @@ class TestMessageConverterIsVisionMessage:
 
 
 class TestConvertResponsesAPIToLangchain:
-    """Tests for _convert_responses_api_to_langchain with new username/time_block changes."""
+    """Tests for _convert_responses_api_to_langchain with system-reminder merging."""
 
-    def test_username_applied_to_last_text_block(self):
-        """Username prefix is applied to the LAST text block (user's question), not the first."""
+    def test_username_applied_to_user_message(self):
+        """Username prefix is applied to the user's message (last input_text), not context."""
         blocks = [
-            {"type": "input_text", "text": "<attachment>\nmetadata\n</attachment>"},
+            {"type": "input_text", "text": "<attachment>metadata</attachment>"},
             {"type": "input_text", "text": "What is this?"},
         ]
         result = MessageConverter._convert_responses_api_to_langchain(
             blocks, username="Alice"
         )
         content = result["content"]
-        # The first block (attachment metadata) must NOT have the prefix
-        assert content[0]["text"] == "<attachment>\nmetadata\n</attachment>"
-        # The second block (user question) should have the prefix
-        assert content[1]["text"] == "User[Alice]: What is this?"
+        # User message (first in output) gets the prefix
+        assert content[0]["text"] == "User[Alice]: What is this?"
+        # Context block is merged into system-reminder (second block)
+        assert "<system-reminder>" in content[1]["text"]
+        assert "<attachment>" in content[1]["text"]
 
-    def test_time_block_appended_at_end(self):
-        """System-reminder time block is appended after all content blocks."""
+    def test_time_text_merged_into_system_reminder(self):
+        """time_text is merged into system-reminder along with context blocks."""
         blocks = [{"type": "input_text", "text": "Hello"}]
-        time_block = {
-            "type": "text",
-            "text": "<system-reminder>[time]</system-reminder>",
-        }
         result = MessageConverter._convert_responses_api_to_langchain(
-            blocks, time_block=time_block
+            blocks, time_text="<CurrentTime>2025-01-01 12:00</CurrentTime>"
         )
         content = result["content"]
         assert len(content) == 2
         assert content[0]["text"] == "Hello"
-        assert content[1] == time_block
+        assert "<system-reminder>" in content[1]["text"]
+        assert "<CurrentTime>2025-01-01 12:00</CurrentTime>" in content[1]["text"]
 
-    def test_username_and_time_block_combined(self):
-        """Username prefix on last text + time block at end."""
+    def test_context_and_time_merged_into_single_reminder(self):
+        """Context blocks + time_text merged into ONE system-reminder block."""
         blocks = [
             {"type": "input_text", "text": "attachment data"},
             {"type": "input_text", "text": "My question"},
         ]
-        time_block = {
-            "type": "text",
-            "text": "<system-reminder>[now]</system-reminder>",
-        }
         result = MessageConverter._convert_responses_api_to_langchain(
-            blocks, username="Bob", time_block=time_block
+            blocks, username="Bob", time_text="<CurrentTime>now</CurrentTime>"
         )
         content = result["content"]
-        assert len(content) == 3
-        assert content[0]["text"] == "attachment data"
-        assert content[1]["text"] == "User[Bob]: My question"
-        assert content[2] == time_block
+        # [user_msg, system_reminder]
+        assert len(content) == 2
+        assert content[0]["text"] == "User[Bob]: My question"
+        reminder = content[1]["text"]
+        assert reminder.startswith("<system-reminder>")
+        assert "attachment data" in reminder
+        assert "<CurrentTime>now</CurrentTime>" in reminder
+        assert reminder.endswith("</system-reminder>")
 
-    def test_no_username_no_time_block(self):
-        """Without username and time_block, content is passed through."""
+    def test_no_username_no_time_no_context(self):
+        """Single block without username or time passes through cleanly."""
         blocks = [{"type": "input_text", "text": "Hello"}]
         result = MessageConverter._convert_responses_api_to_langchain(blocks)
         content = result["content"]
@@ -389,7 +387,7 @@ class TestConvertResponsesAPIToLangchain:
         assert content[0] == {"type": "text", "text": "Hello"}
 
     def test_vision_message_with_username(self):
-        """Vision message: username applied to last text block, images preserved."""
+        """Vision message: user msg + images + system-reminder in correct order."""
         blocks = [
             {"type": "input_text", "text": "What is this?"},
             {"type": "input_image", "image_url": "data:image/png;base64,abc"},
@@ -411,6 +409,23 @@ class TestConvertResponsesAPIToLangchain:
             blocks, username="X"
         )
         assert result["content"][0]["text"] == "User[X]: Hello"
+
+    def test_multiple_context_blocks_merged(self):
+        """Multiple context text blocks are all merged into system-reminder."""
+        blocks = [
+            {"type": "input_text", "text": "<attachment>img meta</attachment>"},
+            {"type": "input_text", "text": "<selected_documents>docs</selected_documents>"},
+            {"type": "input_text", "text": "My question"},
+        ]
+        result = MessageConverter._convert_responses_api_to_langchain(
+            blocks, time_text="[time]"
+        )
+        content = result["content"]
+        assert content[0]["text"] == "My question"
+        reminder = content[1]["text"]
+        assert "<attachment>img meta</attachment>" in reminder
+        assert "<selected_documents>docs</selected_documents>" in reminder
+        assert "[time]" in reminder
 
 
 class TestBuildMessagesPlainTextWithTimeBlock:

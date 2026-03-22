@@ -226,7 +226,7 @@ class TestParsePromptBlocks:
         assert text == "test"
 
     def test_input_text_type_blocks(self):
-        """Vision payloads use input_text/input_image types."""
+        """Old format: <attachment> + [User Question]: blocks → extracts user message."""
         import json
 
         from shared.prompts.constants import parse_prompt_blocks
@@ -239,9 +239,39 @@ class TestParsePromptBlocks:
             ]
         )
         text_content, extra = parse_prompt_blocks(raw)
-        assert text_content == "<attachment>metadata</attachment>"
+        # User message extracted from [User Question]: block
+        assert text_content == "Describe this"
+        # Old <attachment> block is discarded; no extra_blocks
+        assert extra == []
+
+    def test_new_format_user_msg_and_system_reminder(self):
+        """New format: user message + system-reminder."""
+        import json
+
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = json.dumps(
+            [
+                {"type": "text", "text": "Describe this image"},
+                {
+                    "type": "text",
+                    "text": "<system-reminder><attachment>meta</attachment>[time]</system-reminder>",
+                },
+            ]
+        )
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "Describe this image"
         assert len(extra) == 1
-        assert extra[0]["text"] == "[User Question]:\nDescribe this"
+        assert "<system-reminder>" in extra[0]["text"]
+
+    def test_old_format_string_with_marker(self):
+        """Old plain-text format with [User Question]: extracts the actual question."""
+        from shared.prompts.constants import parse_prompt_blocks
+
+        raw = "<attachment>\ndoc content\n</attachment>\n\n[User Question]:\nWhat is this?"
+        text_content, extra = parse_prompt_blocks(raw)
+        assert text_content == "What is this?"
+        assert extra == []
 
     def test_input_text_single_block(self):
         """Single input_text block after image stripping."""

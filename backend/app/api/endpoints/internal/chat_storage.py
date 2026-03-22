@@ -32,7 +32,7 @@ from app.models.subtask_context import (
     SubtaskContext,
 )
 from app.models.user import User
-from shared.prompts.constants import USER_QUESTION_MARKER, parse_prompt_blocks
+from shared.prompts.constants import parse_prompt_blocks
 from shared.telemetry.decorators import trace_sync
 
 logger = logging.getLogger(__name__)
@@ -307,7 +307,9 @@ def _build_user_message_content(
     )
 
     if not all_contexts:
-        if is_structured_prompt:
+        if extra_blocks:
+            # New format: include stored system-reminder (carries time info
+            # and any context metadata from the original send).
             return [{"type": "text", "text": text_content}, *extra_blocks]
         return text_content
 
@@ -444,56 +446,57 @@ def _build_user_message_content(
                     )
                 break
 
-    # Combine text parts with proper XML tags
-    # For vision parts (images), attachment_text_parts contains both image metadata
-    # headers and doc-attachment text, which are wrapped in <attachment> tags.
+    # Output assembly.
     #
-    # When is_structured_prompt is true the prompt was stored in the new multi-block
-    # array format by update_user_message_content.  In that case text_content was
-    # produced by _build_vision_structure and already embeds ALL attachment content
-    # inside its <attachment> block.  Prepending attachment_text_parts again would
-    # produce duplicates, so we skip it.  Knowledge-base content is never stored
-    # inside text_content, so it is always added.
-    if vision_parts:
-        # Image attachments: wrap metadata headers in <attachment> tag
-        combined_prefix = ""
-        if attachment_text_parts and not is_structured_prompt:
-            headers_text = "\n\n".join(attachment_text_parts)
-            combined_prefix += f"<attachment>\n\n{headers_text}\n</attachment>\n\n"
-        if kb_text_parts:
-            combined_prefix += (
-                "<knowledge_base>\n\n"
-                + "\n\n".join(kb_text_parts)
-                + "</knowledge_base>\n\n"
-            )
-        if combined_prefix:
-            if USER_QUESTION_MARKER not in text_content:
-                text_content = (
-                    f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
-                )
-            else:
-                text_content = f"{combined_prefix}{text_content}"
-        # Place text first, then images, then system-reminder and other extra blocks
-        return [{"type": "text", "text": text_content}, *vision_parts, *extra_blocks]
+    # This internal API serves chat_shell HTTP mode which sends the result
+    # directly to the LLM.  The format must match what the LLM expects:
+    #   [user_msg_block, image_blocks..., system_reminder_block]
+    #
+    # When extra_blocks is present (new format), the stored system-reminder
+    # already contains all context metadata + time.  Pass it through as-is
+    # to avoid duplication (the DB contexts are only needed for image base64).
+    #
+    # When extra_blocks is empty (old format), rebuild a system-reminder
+    # from the DB context records.
+    if extra_blocks:
+        if vision_parts:
+            return [
+                {"type": "text", "text": text_content},
+                *vision_parts,
+                *extra_blocks,
+            ]
+        return [{"type": "text", "text": text_content}, *extra_blocks]
 
-    # Non-image attachments: wrap in <attachment> tag, knowledge bases in <knowledge_base> tag
-    combined_prefix = ""
+    # Old format fallback: rebuild system-reminder from DB context records.
+    context_parts: list[str] = []
     if attachment_text_parts:
-        combined_prefix += (
-            "<attachment>" + "\n\n".join(attachment_text_parts) + "</attachment>\n\n"
+        context_parts.append(
+            "<attachment>" + "".join(attachment_text_parts) + "</attachment>"
         )
     if kb_text_parts:
-        combined_prefix += (
-            "<knowledge_base>" + "\n\n".join(kb_text_parts) + "</knowledge_base>\n\n"
+        context_parts.append(
+            "<knowledge_base>" + "".join(kb_text_parts) + "</knowledge_base>"
         )
-    if combined_prefix:
-        if USER_QUESTION_MARKER not in text_content:
-            text_content = f"{combined_prefix}{USER_QUESTION_MARKER}\n{text_content}"
-        else:
-            text_content = f"{combined_prefix}{text_content}"
 
+    if context_parts:
+        inner = "".join(context_parts)
+        reminder_block = {
+            "type": "text",
+            "text": f"<system-reminder>{inner}</system-reminder>",
+        }
+        if vision_parts:
+            return [
+                {"type": "text", "text": text_content},
+                *vision_parts,
+                reminder_block,
+            ]
+        return [{"type": "text", "text": text_content}, reminder_block]
+
+    # No context at all
+    if vision_parts:
+        return [{"type": "text", "text": text_content}, *vision_parts]
     if is_structured_prompt:
-        return [{"type": "text", "text": text_content}, *extra_blocks]
+        return [{"type": "text", "text": text_content}]
     return text_content
 
 

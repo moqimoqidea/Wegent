@@ -642,7 +642,7 @@ class TestHistoryTruncationStrategy:
                     {"type": "text", "text": "User 2"},
                     {
                         "type": "text",
-                        "text": "<system-reminder>\n[Current time: 2026-03-20]\n</system-reminder>",
+                        "text": "<system-reminder><CurrentTime>2026-03-20</CurrentTime></system-reminder>",
                     },
                 ],
             },

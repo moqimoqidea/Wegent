@@ -29,7 +29,7 @@ class TestExtractDisplayPrompt:
                 {"type": "text", "text": "User question"},
                 {
                     "type": "text",
-                    "text": "<system-reminder>\n[Current time: 2025-01-01 12:00]\n</system-reminder>",
+                    "text": "<system-reminder><CurrentTime>2025-01-01 12:00</CurrentTime></system-reminder>",
                 },
             ]
         )
@@ -51,7 +51,7 @@ class TestExtractDisplayPrompt:
                 },
                 {
                     "type": "text",
-                    "text": "<system-reminder>[Current time: 2025-01-01]</system-reminder>",
+                    "text": "<system-reminder><CurrentTime>2025-01-01</CurrentTime></system-reminder>",
                 },
             ]
         )
@@ -85,3 +85,22 @@ class TestExtractDisplayPrompt:
             ]
         )
         assert extract_display_prompt(prompt) == ""
+
+    def test_old_format_attachment_with_user_question_marker(self):
+        """Old format: <attachment> + [User Question]: → extracts user message."""
+        prompt = json.dumps(
+            [
+                {"type": "text", "text": "<attachment>\nimage metadata\n</attachment>"},
+                {"type": "text", "text": "[User Question]:\nWhat is this image?"},
+                {
+                    "type": "text",
+                    "text": "<system-reminder>[Current time: 2025-01-01]</system-reminder>",
+                },
+            ]
+        )
+        assert extract_display_prompt(prompt) == "What is this image?"
+
+    def test_old_format_plain_string_with_marker(self):
+        """Old text-only format with [User Question]: in plain string."""
+        prompt = "<attachment>\ndoc content\n</attachment>\n\n[User Question]:\nSummarize this"
+        assert extract_display_prompt(prompt) == "Summarize this"
