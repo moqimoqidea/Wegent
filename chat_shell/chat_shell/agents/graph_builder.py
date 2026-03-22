@@ -890,6 +890,22 @@ class LangGraphAgentBuilder:
                                                 ),
                                             )
                                             yield f"__REASONING__{thinking_text}__END_REASONING__"
+                                    elif part_type == "reasoning":
+                                        # OpenAI Responses API reasoning blocks:
+                                        # {"type": "reasoning", "summary": [{"type": "summary_text", "text": "..."}]}
+                                        for item in part.get("summary") or []:
+                                            if isinstance(item, dict) and item.get("type") == "summary_text":
+                                                summary_text = item.get("text", "")
+                                                if summary_text:
+                                                    logger.debug(
+                                                        "[stream_tokens] Yielding Responses API reasoning: %s...",
+                                                        (
+                                                            summary_text[:50]
+                                                            if len(summary_text) > 50
+                                                            else summary_text
+                                                        ),
+                                                    )
+                                                    yield f"__REASONING__{summary_text}__END_REASONING__"
                                     else:
                                         # Extract text from dict format
                                         text = part.get("text", "")
