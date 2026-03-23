@@ -129,9 +129,7 @@ async def route_task_to_device(
     # Extract original user text from stored prompt to prevent double-wrapping:
     # after deep-thinking persistence, the prompt may be a JSON content array.
     builder = TaskRequestBuilder(db)
-    fallback_prompt = (
-        user_subtask.prompt if user_subtask else local_subtask.prompt
-    )
+    fallback_prompt = user_subtask.prompt if user_subtask else local_subtask.prompt
     request = builder.build(
         subtask=local_subtask,
         task=task,
