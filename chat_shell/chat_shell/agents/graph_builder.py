@@ -14,10 +14,8 @@ This module provides a simplified LangGraph agent implementation using:
 import asyncio
 import json
 import logging
-import os
 import time
 from collections.abc import AsyncGenerator
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -38,6 +36,11 @@ from opentelemetry import trace as otel_trace
 from shared.telemetry.decorators import add_span_event, trace_sync
 
 from ..core.config import settings
+from ..llm_logging import env_bool as _env_bool
+from ..llm_logging import log_direct_llm_request as _log_direct_llm_request
+from ..llm_logging import log_direct_llm_response as _log_direct_llm_response
+from ..llm_logging import log_llm_request_event as _log_llm_request_event
+from ..llm_logging import log_llm_response_event as _log_llm_response_event
 from ..tools.base import ToolRegistry
 from ..tools.builtin.silent_exit import SilentExitException
 
@@ -329,6 +332,147 @@ class LangGraphAgentBuilder:
 
         # Automatically detect PromptModifierTool instances from registered tools
         self._prompt_modifier_tools = self._find_prompt_modifier_tools()
+
+    async def _collect_final_state_from_events(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        config: dict[str, Any] | None = None,
+        cancel_event: asyncio.Event | None = None,
+        on_tool_event: Callable[[str, dict], None] | None = None,
+        collect_all_events: bool = True,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Execute via astream_events and capture final state plus optional events."""
+
+        agent = self._build_agent()
+        lc_messages = convert_to_messages(messages)
+        exec_config = {"configurable": config} if config else None
+
+        all_events: list[dict[str, Any]] = []
+        final_state: dict[str, Any] = {}
+
+        try:
+            async for event in agent.astream_events(
+                {"messages": lc_messages},
+                config={
+                    **(exec_config or {}),
+                    "recursion_limit": self.max_iterations * 2 + 1,
+                },
+                version="v2",
+            ):
+                if cancel_event and cancel_event.is_set():
+                    logger.info("Streaming cancelled by user")
+                    break
+
+                if collect_all_events:
+                    all_events.append(event)
+
+                kind = event.get("event", "")
+
+                if kind == "on_chat_model_start":
+                    _log_llm_request_event(
+                        event,
+                        tool_names=[
+                            t.name for t in getattr(self, "all_tools", []) or []
+                        ],
+                    )
+                elif kind == "on_chat_model_end":
+                    _log_llm_response_event(
+                        event,
+                        tool_names=[
+                            t.name for t in getattr(self, "all_tools", []) or []
+                        ],
+                    )
+
+                if kind == "on_tool_start":
+                    tool_name = event.get("name", "unknown")
+                    run_id = event.get("run_id", "")
+                    if on_tool_event:
+                        on_tool_event(
+                            "tool_start",
+                            {
+                                "name": tool_name,
+                                "run_id": run_id,
+                                "data": event.get("data", {}),
+                            },
+                        )
+
+                elif kind == "on_tool_end":
+                    tool_name = event.get("name", "unknown")
+                    run_id = event.get("run_id", "")
+                    if on_tool_event:
+                        on_tool_event(
+                            "tool_end",
+                            {
+                                "name": tool_name,
+                                "run_id": run_id,
+                                "data": event.get("data", {}),
+                            },
+                        )
+
+                elif kind == "on_chain_end" and event.get("name") == "LangGraph":
+                    data = event.get("data", {})
+                    output = data.get("output", {})
+                    if output:
+                        final_state = output
+
+            return final_state, all_events
+
+        except SilentExitException:
+            logger.info(
+                "[collect_final_state_from_events] SilentExitException caught, re-raising for caller to handle"
+            )
+            raise
+
+        except GraphRecursionError:
+            logger.warning(
+                "[collect_final_state_from_events] GraphRecursionError: Tool call limit reached (max_iterations=%d). "
+                "Asking model to provide final response.",
+                self.max_iterations,
+            )
+
+            limit_messages = list(lc_messages) + [
+                HumanMessage(content=TOOL_LIMIT_REACHED_MESSAGE)
+            ]
+
+            try:
+                _log_direct_llm_request(
+                    messages=limit_messages,
+                    tool_names=[t.name for t in getattr(self, "all_tools", []) or []],
+                    request_name="tool_limit_recovery",
+                )
+                response = await self.llm.ainvoke(limit_messages)
+                _log_direct_llm_response(
+                    response=response,
+                    request_name="tool_limit_recovery",
+                    tool_names=[t.name for t in getattr(self, "all_tools", []) or []],
+                )
+                final_content = ""
+                if hasattr(response, "content"):
+                    if isinstance(response.content, str):
+                        final_content = response.content
+                    elif isinstance(response.content, list):
+                        text_parts = []
+                        for part in response.content:
+                            if isinstance(part, str):
+                                text_parts.append(part)
+                            elif isinstance(part, dict) and part.get("type") == "text":
+                                text_parts.append(part.get("text", ""))
+                        final_content = "".join(text_parts)
+
+                final_state = {
+                    "messages": list(lc_messages) + [AIMessage(content=final_content)]
+                }
+                return final_state, all_events
+            except Exception:
+                logger.exception(
+                    "Error generating final response after tool limit reached"
+                )
+                raise
+
+        except Exception:
+            logger.exception("Error while collecting final state from events")
+            raise
 
     def _find_prompt_modifier_tools(self) -> list[Any]:
         """Find all tools that implement the PromptModifierTool protocol.
@@ -649,22 +793,12 @@ class LangGraphAgentBuilder:
         Returns:
             Final agent state with response
         """
-        agent = self._build_agent()
-
-        # Use LangChain's built-in convert_to_messages
-        lc_messages = convert_to_messages(messages)
-
-        exec_config = {"configurable": config} if config else None
-
-        # Execute with recursion limit for max iterations
-        result = await agent.ainvoke(
-            {"messages": lc_messages},
-            config={
-                **(exec_config or {}),
-                "recursion_limit": self.max_iterations * 2 + 1,
-            },
+        result, _events = await self._collect_final_state_from_events(
+            messages=messages,
+            config=config,
+            cancel_event=cancel_event,
+            collect_all_events=False,
         )
-
         return result
 
     async def stream_execute(
@@ -687,6 +821,12 @@ class LangGraphAgentBuilder:
         lc_messages = convert_to_messages(messages)
 
         exec_config = {"configurable": config} if config else None
+
+        _log_direct_llm_request(
+            messages=lc_messages,
+            tool_names=[t.name for t in getattr(self, "all_tools", []) or []],
+            request_name="stream_execute",
+        )
 
         async for event in agent.astream(
             {"messages": lc_messages},
@@ -894,7 +1034,10 @@ class LangGraphAgentBuilder:
                                         # OpenAI Responses API reasoning blocks:
                                         # {"type": "reasoning", "summary": [{"type": "summary_text", "text": "..."}]}
                                         for item in part.get("summary") or []:
-                                            if isinstance(item, dict) and item.get("type") == "summary_text":
+                                            if (
+                                                isinstance(item, dict)
+                                                and item.get("type") == "summary_text"
+                                            ):
                                                 summary_text = item.get("text", "")
                                                 if summary_text:
                                                     logger.debug(
@@ -955,6 +1098,12 @@ class LangGraphAgentBuilder:
                             truncation_reason = finish_reason
 
                 elif kind == "on_chat_model_end":
+                    _log_llm_response_event(
+                        event,
+                        tool_names=[
+                            t.name for t in getattr(self, "all_tools", []) or []
+                        ],
+                    )
                     # Track LLM request completion
                     if llm_request_start_time is not None:
                         total_llm_time_ms = (
@@ -1245,6 +1394,11 @@ class LangGraphAgentBuilder:
 
             # Call the LLM directly (without tools) to get final response
             try:
+                _log_direct_llm_request(
+                    messages=limit_messages,
+                    tool_names=[t.name for t in getattr(self, "all_tools", []) or []],
+                    request_name="tool_limit_recovery_stream",
+                )
                 async for chunk in self.llm.astream(limit_messages):
                     if hasattr(chunk, "content"):
                         content = chunk.content
@@ -1341,125 +1495,15 @@ class LangGraphAgentBuilder:
         Returns:
             Tuple of (final_state, all_events)
         """
-        agent = self._build_agent()
-        lc_messages = convert_to_messages(messages)
-
-        exec_config = {"configurable": config} if config else None
-
-        all_events: list[dict[str, Any]] = []
-        final_state: dict[str, Any] = {}
-
-        try:
-            async for event in agent.astream_events(
-                {"messages": lc_messages},
-                config={
-                    **(exec_config or {}),
-                    "recursion_limit": self.max_iterations * 2 + 1,
-                },
-                version="v2",
-            ):
-                # Check cancellation
-                if cancel_event and cancel_event.is_set():
-                    logger.info("Streaming cancelled by user")
-                    break
-
-                all_events.append(event)
-                kind = event.get("event", "")
-
-                # Handle tool events
-                if kind == "on_tool_start":
-                    tool_name = event.get("name", "unknown")
-                    run_id = event.get("run_id", "")
-                    if on_tool_event:
-                        on_tool_event(
-                            "tool_start",
-                            {
-                                "name": tool_name,
-                                "run_id": run_id,
-                                "data": event.get("data", {}),
-                            },
-                        )
-
-                elif kind == "on_tool_end":
-                    tool_name = event.get("name", "unknown")
-                    run_id = event.get("run_id", "")
-                    if on_tool_event:
-                        on_tool_event(
-                            "tool_end",
-                            {
-                                "name": tool_name,
-                                "run_id": run_id,
-                                "data": event.get("data", {}),
-                            },
-                        )
-
-                # Capture final state from LangGraph chain end
-                elif kind == "on_chain_end" and event.get("name") == "LangGraph":
-                    data = event.get("data", {})
-                    output = data.get("output", {})
-                    if output:
-                        final_state = output
-
-            logger.debug(
-                "[stream_events_with_state] Completed: total_events=%d",
-                len(all_events),
-            )
-
-            return final_state, all_events
-
-        except SilentExitException:
-            # Silent exit requested by tool - re-raise to be handled by caller
-            # This is not an error, just a signal to terminate silently
-            logger.info(
-                "[stream_events_with_state] SilentExitException caught, re-raising for caller to handle"
-            )
-            raise
-
-        except GraphRecursionError:
-            # Tool call limit reached - ask model to provide final response
-            logger.warning(
-                "[stream_events_with_state] GraphRecursionError: Tool call limit reached (max_iterations=%d). "
-                "Asking model to provide final response.",
-                self.max_iterations,
-            )
-
-            # Build messages with the limit reached notice
-            limit_messages = list(lc_messages) + [
-                HumanMessage(content=TOOL_LIMIT_REACHED_MESSAGE)
-            ]
-
-            # Call the LLM directly (without tools) to get final response
-            try:
-                response = await self.llm.ainvoke(limit_messages)
-                final_content = ""
-                if hasattr(response, "content"):
-                    if isinstance(response.content, str):
-                        final_content = response.content
-                    elif isinstance(response.content, list):
-                        text_parts = []
-                        for part in response.content:
-                            if isinstance(part, str):
-                                text_parts.append(part)
-                            elif isinstance(part, dict) and part.get("type") == "text":
-                                text_parts.append(part.get("text", ""))
-                        final_content = "".join(text_parts)
-
-                # Create a final state with the response
-                final_state = {
-                    "messages": list(lc_messages) + [AIMessage(content=final_content)]
-                }
-
-                logger.debug(
-                    "[stream_events_with_state] Final response generated after tool limit reached"
-                )
-                return final_state, all_events
-
-            except Exception:
-                logger.exception(
-                    "Error generating final response after tool limit reached"
-                )
-                raise
-
-        except Exception:
-            logger.exception("Error in stream_events_with_state")
-            raise
+        final_state, all_events = await self._collect_final_state_from_events(
+            messages=messages,
+            config=config,
+            cancel_event=cancel_event,
+            on_tool_event=on_tool_event,
+            collect_all_events=True,
+        )
+        logger.debug(
+            "[stream_events_with_state] Completed: total_events=%d",
+            len(all_events),
+        )
+        return final_state, all_events

@@ -623,15 +623,11 @@ def _build_history_messages(
             if image_metadata_headers:
                 img_text = "".join(image_metadata_headers)
                 if not context_parts or not context_parts[0].startswith("<attachment>"):
-                    context_parts.insert(
-                        0, f"<attachment>{img_text}</attachment>"
-                    )
+                    context_parts.insert(0, f"<attachment>{img_text}</attachment>")
                 else:
                     old = context_parts[0]
-                    inner = old[len("<attachment>"):-len("</attachment>")]
-                    context_parts[0] = (
-                        f"<attachment>{img_text}{inner}</attachment>"
-                    )
+                    inner = old[len("<attachment>") : -len("</attachment>")]
+                    context_parts[0] = f"<attachment>{img_text}{inner}</attachment>"
 
             if context_parts:
                 inner = "".join(context_parts)
@@ -844,6 +840,16 @@ def _build_knowledge_base_text_prefix(context) -> str:
     Note: This returns raw content. The caller is responsible for wrapping
     multiple knowledge base contents in a single <knowledge_base> XML tag.
     """
+    type_data = getattr(context, "type_data", None) or {}
+    rag_result = type_data.get("rag_result") or {}
+    if rag_result.get("restricted_mode") or type_data.get("restricted_mode"):
+        logger.info(
+            "[history] Skipping restricted knowledge base context: id=%s, kb_id=%s",
+            getattr(context, "id", None),
+            getattr(context, "knowledge_id", None),
+        )
+        return ""
+
     if not context.extracted_text:
         return ""
 
