@@ -93,8 +93,7 @@ export function McpProviderConfigDialog({
     } catch (error) {
       toast({
         variant: 'destructive',
-        title:
-          (error as Error)?.message || t(`${providerId}.services.${serviceId}.save_failed`),
+        title: (error as Error)?.message || t(`${providerId}.services.${serviceId}.save_failed`),
       })
     } finally {
       setSaving(false)
@@ -116,7 +115,9 @@ export function McpProviderConfigDialog({
             <p className="text-sm text-text-secondary">{t(`${providerId}.modal.steps_intro`)}</p>
             <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-text-primary">
               <li>{t(`${providerId}.modal.step_open_home`)}</li>
-              <li>{t(`${providerId}.modal.step_choose_service`, { service: resolvedServiceName })}</li>
+              <li>
+                {t(`${providerId}.modal.step_choose_service`, { service: resolvedServiceName })}
+              </li>
               <li>{t(`${providerId}.modal.step_get_config`)}</li>
               <li>{t(`${providerId}.modal.step_confirm`)}</li>
               <li>{t(`${providerId}.modal.step_copy_url`)}</li>

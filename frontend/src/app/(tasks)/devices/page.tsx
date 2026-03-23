@@ -68,7 +68,8 @@ export default function DevicesPage() {
   // Get auth token
   const authToken = useMemo(() => getToken() || '<YOUR_AUTH_TOKEN>', [])
 
-  const { devices, isLoading, error, refreshDevices, isDeviceUpgrading, getUpgradeStatus } = useDevices()
+  const { devices, isLoading, error, refreshDevices, isDeviceUpgrading, getUpgradeStatus } =
+    useDevices()
 
   // Device action handlers (consolidated in custom hook)
   const handlers = useDeviceHandlers()

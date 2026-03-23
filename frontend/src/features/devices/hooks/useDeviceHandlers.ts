@@ -140,11 +140,16 @@ export function useDeviceHandlers(): DeviceHandlers {
   const handleUpgradeDevice = useCallback(
     async (device: DeviceInfo) => {
       // Check if executor version supports auto-upgrade (>= 1.6.5)
-      if (device.executor_version && !isVersionAtLeast(device.executor_version, MIN_AUTO_UPGRADE_VERSION)) {
-        toast.error(t('upgrade.unsupportedVersion', {
-          current: device.executor_version,
-          required: MIN_AUTO_UPGRADE_VERSION
-        }))
+      if (
+        device.executor_version &&
+        !isVersionAtLeast(device.executor_version, MIN_AUTO_UPGRADE_VERSION)
+      ) {
+        toast.error(
+          t('upgrade.unsupportedVersion', {
+            current: device.executor_version,
+            required: MIN_AUTO_UPGRADE_VERSION,
+          })
+        )
         return
       }
 

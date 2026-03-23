@@ -185,6 +185,7 @@
       "reindexing": "索引中...",
       "reindexSuccess": "已开始重新索引",
       "reindexFailed": "启动重新索引失败",
+      "excelFileSizeExceeded": "文件大小超过限制：Excel 文件（{{extension}}）必须小于等于 {{limit}}MB 才能索引。当前文件大小：{{size}}MB。请减小文件大小或拆分为多个小文件。",
       "openLink": "打开链接",
       "download": "下载",
       "columns": {
@@ -390,12 +391,12 @@
         "Maintainer": "管理员",
         "Developer": "开发者",
         "Reporter": "使用者",
-        "RestrictedAnalyst": "盲分析师",
+        "RestrictedAnalyst": "访客",
         "OwnerDescription": "创建者，拥有所有权限（仅创建者可拥有此角色）",
         "MaintainerDescription": "管理员，可以管理成员和编辑内容",
         "DeveloperDescription": "开发者，可以编辑内容",
         "ReporterDescription": "使用者，仅可查看内容",
-        "RestrictedAnalystDescription": "盲分析师，仅可使用部分内容"
+        "RestrictedAnalystDescription": "访客，仅可使用部分内容"
       },
       "viewDescription": "仅可浏览知识库内容",
       "editDescription": "可添加、修改和删除文档",
