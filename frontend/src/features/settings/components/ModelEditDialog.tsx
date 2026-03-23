@@ -106,14 +106,27 @@ export interface ModelInitialData {
 
 /**
  * Extract thinkingConfig from model - reads from env (single source of truth).
+ * Unwraps double-nested thinking_config if found (caused by earlier bug).
  */
 function extractThinkingConfig(
-  model: import('@/apis/models').ModelCRD,
+  model: import('@/apis/models').ModelCRD
 ): Record<string, unknown> | undefined {
   const env = model.spec?.modelConfig?.env
-  return (env?.thinking_config ?? env?.thinkingConfig) as
-    | Record<string, unknown>
-    | undefined
+  let config = (env?.thinking_config ?? env?.thinkingConfig) as Record<string, unknown> | undefined
+  // Unwrap double-nested thinking_config from corrupted DB data
+  if (config) {
+    const keys = Object.keys(config)
+    if (
+      keys.length === 1 &&
+      (keys[0] === 'thinking_config' || keys[0] === 'thinkingConfig') &&
+      typeof config[keys[0]] === 'object' &&
+      config[keys[0]] !== null &&
+      !Array.isArray(config[keys[0]])
+    ) {
+      config = config[keys[0]] as Record<string, unknown>
+    }
+  }
+  return config
 }
 
 interface ModelEditDialogProps {
@@ -450,7 +463,10 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
         setContextWindow(effectiveInitialData.contextWindow)
         setMaxOutputTokens(effectiveInitialData.maxOutputTokens)
         // Load thinking config
-        if (effectiveInitialData.thinkingConfig && Object.keys(effectiveInitialData.thinkingConfig).length > 0) {
+        if (
+          effectiveInitialData.thinkingConfig &&
+          Object.keys(effectiveInitialData.thinkingConfig).length > 0
+        ) {
           setThinkingConfigStr(JSON.stringify(effectiveInitialData.thinkingConfig, null, 2))
         } else {
           setThinkingConfigStr('')
@@ -853,6 +869,19 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
         return null
       }
       setThinkingConfigError('')
+      // Unwrap if user provided {"thinking_config": {...}} wrapper —
+      // the code already stores the value under the thinking_config key,
+      // so we need the inner value to avoid double-nesting.
+      const keys = Object.keys(parsed)
+      if (
+        keys.length === 1 &&
+        (keys[0] === 'thinking_config' || keys[0] === 'thinkingConfig') &&
+        typeof parsed[keys[0]] === 'object' &&
+        parsed[keys[0]] !== null &&
+        !Array.isArray(parsed[keys[0]])
+      ) {
+        return parsed[keys[0]] as Record<string, unknown>
+      }
       return parsed as Record<string, unknown>
     } catch {
       setThinkingConfigError(t('common:models.errors.thinking_config_invalid_json'))
@@ -1044,7 +1073,10 @@ const ModelEditDialog: React.FC<ModelEditDialogProps> = ({
               ...(parsedHeaders &&
                 Object.keys(parsedHeaders).length > 0 && { custom_headers: parsedHeaders }),
               // Thinking/reasoning config stored in env (single source of truth)
-              ...(parsedThinkingConfig && Object.keys(parsedThinkingConfig).length > 0 && { thinking_config: parsedThinkingConfig }),
+              ...(parsedThinkingConfig &&
+                Object.keys(parsedThinkingConfig).length > 0 && {
+                  thinking_config: parsedThinkingConfig,
+                }),
             },
           },
           modelType: modelCategoryType,
