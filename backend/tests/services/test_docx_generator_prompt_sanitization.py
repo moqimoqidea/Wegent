@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from docx import Document
 
-from app.services.export.docx_generator import _add_message
 from app.schemas.subtask import SubtaskRole
+from app.services.export.docx_generator import _add_message
 
 
 def _make_user_subtask(prompt: str, contexts=None):

@@ -228,8 +228,12 @@ def _add_message(doc: Document, subtask: Subtask, task: Kind, user: User, db: Se
             _add_knowledge_bases(doc, knowledge_base_contexts)
 
     # Message content — strip system-injected metadata (<system-reminder> etc.) for user messages
-    content = extract_display_prompt(subtask.prompt) if is_user else _extract_result_value(subtask.result)
-    content = content or ''
+    content = (
+        extract_display_prompt(subtask.prompt)
+        if is_user
+        else _extract_result_value(subtask.result)
+    )
+    content = content or ""
 
     # Remove special markers
     content = _clean_content(content)
