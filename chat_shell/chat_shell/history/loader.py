@@ -18,82 +18,38 @@ For HTTP Mode (CHAT_SHELL_MODE=http):
 """
 
 import asyncio
-import json
 import logging
-import re
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from chat_shell.core.config import settings
 from shared.prompts.constants import parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
 
-# Regex to strip context XML tags whose content is already persisted in
-# SubtaskContext (LONGTEXT column) and will be re-injected at history-load
-# time.  Stripping them before writing to the subtask.prompt column (TEXT,
-# 65535 bytes max) prevents silent MySQL truncation.
-_REMINDER_CONTEXT_RE = re.compile(
-    r"<(selected_documents|attachment|knowledge_base)>.*?</\1>", re.DOTALL
+# Prefixes for system-context text blocks that are already persisted in
+# SubtaskContext (LONGTEXT) and re-injected at history-load time.
+# These blocks are filtered out when persisting to subtask.prompt.
+_CONTEXT_BLOCK_PREFIXES = (
+    "<attachment>",
+    "<knowledge_base>",
+    "<selected_documents>",
+    "<system-reminder>",
 )
 
-# Regex to extract the <CurrentTime> block preserved across turns.
-_CURRENT_TIME_RE = re.compile(r"<CurrentTime>.*?</CurrentTime>", re.DOTALL)
 
-_SYSTEM_REMINDER_OPEN = "<system-reminder>"
+def _extract_user_text(content: list[dict[str, Any]]) -> str | None:
+    """Extract the user's plain text from a content block list.
 
-
-def _strip_context_from_reminder(
-    content: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Strip SubtaskContext-backed content from system-reminder blocks.
-
-    ``<selected_documents>``, ``<attachment>`` and ``<knowledge_base>`` are
-    all persisted separately in the ``SubtaskContext`` table (LONGTEXT) and
-    will be re-injected when loading history.  Removing them before storing
-    to the ``subtask.prompt`` column avoids exceeding the MySQL TEXT limit.
-
-    Only ``<CurrentTime>`` (tiny, not stored elsewhere) is kept.
-
-    If stripping leaves an empty ``<system-reminder></system-reminder>``
-    wrapper, the block is dropped entirely.
+    The first text block that does not start with a known context prefix
+    is treated as the user's own message.  Returns ``None`` if no user
+    text block is found.
     """
-    result: list[dict[str, Any]] = []
     for block in content:
-        text = block.get("text", "")
-        if not text.lstrip().startswith(_SYSTEM_REMINDER_OPEN):
-            result.append(block)
+        if block.get("type") != "text":
             continue
-
-        cleaned = _REMINDER_CONTEXT_RE.sub("", text)
-
-        # Check whether the system-reminder still has meaningful content
-        inner = (
-            cleaned.replace("<system-reminder>", "")
-            .replace("</system-reminder>", "")
-            .strip()
-        )
-        if not inner:
-            # Nothing left after stripping; drop the block
-            continue
-
-        result.append({"type": block.get("type", "text"), "text": cleaned})
-    return result
-
-
-def _extract_time_text(
-    extra_blocks: list[dict[str, Any]],
-) -> str | None:
-    """Extract ``<CurrentTime>`` from system-reminder extra_blocks.
-
-    Returns the raw ``<CurrentTime>...</CurrentTime>`` string if found,
-    or ``None`` otherwise.
-    """
-    for block in extra_blocks:
         text = block.get("text", "")
-        if text.lstrip().startswith(_SYSTEM_REMINDER_OPEN):
-            m = _CURRENT_TIME_RE.search(text)
-            if m:
-                return m.group(0)
+        if not text.lstrip().startswith(_CONTEXT_BLOCK_PREFIXES):
+            return text
     return None
 
 
@@ -188,29 +144,23 @@ async def update_user_message_content(
     user_subtask_id: int,
     content: Any,
 ) -> None:
-    """Persist the formatted user message content (array with system-reminder block) to the DB.
+    """Persist the user's plain text message to the DB.
 
-    Storing the multi-block content ensures that when this message is later loaded
-    as history for future turns, it carries the *original* timestamp and matches
-    exactly what was sent to the LLM — enabling prefix-cache hits.
-
-    For vision messages only the text blocks (not image_url blocks) are stored,
-    because the image data is already persisted in SubtaskContext.
+    Context blocks (attachments, knowledge base, selected documents) and
+    the ``<system-reminder>`` block are **not** stored — they are already
+    persisted in ``SubtaskContext`` (LONGTEXT) and re-injected at
+    history-load time.  Storing only the plain text keeps the value well
+    under the MySQL TEXT column limit and ensures the frontend can display
+    it directly without JSON parsing.
 
     Args:
         task_id: Task ID (used to build the session_id for HTTP mode)
         user_subtask_id: ID of the user Subtask record to update
         content: Formatted content — either a string or a list of content blocks
     """
-    # For vision messages, strip image_url blocks before storing: images are already
-    # in SubtaskContext and would bloat the prompt column unnecessarily.
     if isinstance(content, list):
-        storage_content: Any = [b for b in content if b.get("type") != "image_url"]
-        # Strip context content (attachment, selected_documents, knowledge_base)
-        # from system-reminder blocks: they are persisted in SubtaskContext
-        # (LONGTEXT) and re-injected at history-load time.  Keeping them in
-        # the prompt column (TEXT, 65535 bytes) risks silent MySQL truncation.
-        storage_content = _strip_context_from_reminder(storage_content)
+        # Extract the user's own text; skip context / image / reminder blocks.
+        storage_content: Any = _extract_user_text(content) or ""
     else:
         storage_content = content
 
@@ -265,9 +215,7 @@ def _update_user_message_in_db_sync(user_subtask_id: int, content: Any) -> None:
             subtask = db.query(Subtask).filter(Subtask.id == user_subtask_id).first()
             if subtask and subtask.role == SubtaskRole.USER:
                 subtask.prompt = (
-                    content
-                    if isinstance(content, str)
-                    else json.dumps(content, ensure_ascii=False)
+                    str(content) if not isinstance(content, str) else content
                 )
                 db.commit()
                 logger.debug(
@@ -656,66 +604,74 @@ def _build_history_messages(
         # Output assembly.
         #
         # Context content (attachment text, KB text) is always rebuilt from
-        # SubtaskContext records — the source of truth.  The stored
-        # system-reminder in extra_blocks may only carry <CurrentTime> (after
-        # context stripping on persist) or full context (legacy data).  Either
-        # way we extract just <CurrentTime> and reconstruct the rest.
-        time_text = _extract_time_text(extra_blocks) if extra_blocks else None
+        # SubtaskContext records — the source of truth.  Each context type
+        # becomes its own independent text block (not wrapped in
+        # <system-reminder>).  This matches the format produced by
+        # MessageConverter._convert_responses_api_to_langchain().
 
-        context_parts: list[str] = []
+        context_blocks: list[dict[str, Any]] = []
         if attachment_text_parts:
-            context_parts.append(
-                "<attachment>" + "".join(attachment_text_parts) + "</attachment>"
+            context_blocks.append(
+                {
+                    "type": "text",
+                    "text": "<attachment>"
+                    + "".join(attachment_text_parts)
+                    + "</attachment>",
+                }
             )
         if kb_text_parts:
-            context_parts.append(
-                "<knowledge_base>" + "".join(kb_text_parts) + "</knowledge_base>"
+            context_blocks.append(
+                {
+                    "type": "text",
+                    "text": "<knowledge_base>"
+                    + "".join(kb_text_parts)
+                    + "</knowledge_base>",
+                }
             )
-        if time_text:
-            context_parts.append(time_text)
 
         if vision_parts:
             # Add image metadata headers as attachment context
             if image_metadata_headers:
                 img_text = "".join(image_metadata_headers)
-                if not context_parts or not context_parts[0].startswith("<attachment>"):
-                    context_parts.insert(0, f"<attachment>{img_text}</attachment>")
+                attachment_idx = next(
+                    (
+                        i
+                        for i, b in enumerate(context_blocks)
+                        if b["text"].startswith("<attachment>")
+                    ),
+                    None,
+                )
+                if attachment_idx is None:
+                    context_blocks.insert(
+                        0,
+                        {
+                            "type": "text",
+                            "text": f"<attachment>{img_text}</attachment>",
+                        },
+                    )
                 else:
-                    old = context_parts[0]
+                    old = context_blocks[attachment_idx]["text"]
                     inner = old[len("<attachment>") : -len("</attachment>")]
-                    context_parts[0] = f"<attachment>{img_text}{inner}</attachment>"
+                    context_blocks[attachment_idx] = {
+                        "type": "text",
+                        "text": f"<attachment>{img_text}{inner}</attachment>",
+                    }
 
-            if context_parts:
-                inner = "".join(context_parts)
-                reminder_block = {
-                    "type": "text",
-                    "text": f"<system-reminder>{inner}</system-reminder>",
-                }
-                multimodal_blocks: list[dict[str, Any]] = [
-                    {"type": "text", "text": text_content},
-                    *vision_parts,
-                    reminder_block,
-                ]
-            else:
-                multimodal_blocks = [
-                    {"type": "text", "text": text_content},
-                    *vision_parts,
-                ]
+            multimodal_blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": text_content},
+                *vision_parts,
+                *context_blocks,
+            ]
             return [{"role": "user", "content": multimodal_blocks}]
 
         # Text-only path
-        if context_parts:
-            inner = "".join(context_parts)
-            reminder_block = {
-                "type": "text",
-                "text": f"<system-reminder>{inner}</system-reminder>",
-            }
+        if context_blocks:
             return [
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": text_content},
-                        reminder_block,
+                        *context_blocks,
                     ],
                 }
             ]
