@@ -28,25 +28,31 @@ from shared.prompts.constants import parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
 
-# Regex to match <selected_documents>...</selected_documents> blocks inside
-# system-reminder text.  Documents are stored separately in SubtaskContext,
-# so they must be stripped from the prompt column to avoid exceeding the
-# MySQL TEXT column size limit (65535 bytes).
-_SELECTED_DOCS_RE = re.compile(
-    r"<selected_documents>.*?</selected_documents>", re.DOTALL
+# Regex to strip context XML tags whose content is already persisted in
+# SubtaskContext (LONGTEXT column) and will be re-injected at history-load
+# time.  Stripping them before writing to the subtask.prompt column (TEXT,
+# 65535 bytes max) prevents silent MySQL truncation.
+_REMINDER_CONTEXT_RE = re.compile(
+    r"<(selected_documents|attachment|knowledge_base)>.*?</\1>", re.DOTALL
 )
+
+# Regex to extract the <CurrentTime> block preserved across turns.
+_CURRENT_TIME_RE = re.compile(r"<CurrentTime>.*?</CurrentTime>", re.DOTALL)
 
 _SYSTEM_REMINDER_OPEN = "<system-reminder>"
 
 
-def _strip_selected_documents(
+def _strip_context_from_reminder(
     content: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Strip ``<selected_documents>`` from system-reminder blocks.
+    """Strip SubtaskContext-backed content from system-reminder blocks.
 
-    Documents are already persisted separately in ``SubtaskContext`` and will
-    be re-injected when loading history.  Removing them before storing to the
-    ``subtask.prompt`` column avoids exceeding the MySQL TEXT size limit.
+    ``<selected_documents>``, ``<attachment>`` and ``<knowledge_base>`` are
+    all persisted separately in the ``SubtaskContext`` table (LONGTEXT) and
+    will be re-injected when loading history.  Removing them before storing
+    to the ``subtask.prompt`` column avoids exceeding the MySQL TEXT limit.
+
+    Only ``<CurrentTime>`` (tiny, not stored elsewhere) is kept.
 
     If stripping leaves an empty ``<system-reminder></system-reminder>``
     wrapper, the block is dropped entirely.
@@ -58,7 +64,7 @@ def _strip_selected_documents(
             result.append(block)
             continue
 
-        cleaned = _SELECTED_DOCS_RE.sub("", text)
+        cleaned = _REMINDER_CONTEXT_RE.sub("", text)
 
         # Check whether the system-reminder still has meaningful content
         inner = (
@@ -72,6 +78,23 @@ def _strip_selected_documents(
 
         result.append({"type": block.get("type", "text"), "text": cleaned})
     return result
+
+
+def _extract_time_text(
+    extra_blocks: list[dict[str, Any]],
+) -> str | None:
+    """Extract ``<CurrentTime>`` from system-reminder extra_blocks.
+
+    Returns the raw ``<CurrentTime>...</CurrentTime>`` string if found,
+    or ``None`` otherwise.
+    """
+    for block in extra_blocks:
+        text = block.get("text", "")
+        if text.lstrip().startswith(_SYSTEM_REMINDER_OPEN):
+            m = _CURRENT_TIME_RE.search(text)
+            if m:
+                return m.group(0)
+    return None
 
 
 # Global remote history store instance (lazy initialized for HTTP mode)
@@ -183,11 +206,11 @@ async def update_user_message_content(
     # in SubtaskContext and would bloat the prompt column unnecessarily.
     if isinstance(content, list):
         storage_content: Any = [b for b in content if b.get("type") != "image_url"]
-        # Strip <selected_documents> from system-reminder blocks: documents
-        # are persisted in SubtaskContext and re-injected at history-load time.
-        # Keeping them in the prompt column risks exceeding the MySQL TEXT
-        # column limit (65535 bytes), especially for Chinese content.
-        storage_content = _strip_selected_documents(storage_content)
+        # Strip context content (attachment, selected_documents, knowledge_base)
+        # from system-reminder blocks: they are persisted in SubtaskContext
+        # (LONGTEXT) and re-injected at history-load time.  Keeping them in
+        # the prompt column (TEXT, 65535 bytes) risks silent MySQL truncation.
+        storage_content = _strip_context_from_reminder(storage_content)
     else:
         storage_content = content
 
@@ -632,35 +655,13 @@ def _build_history_messages(
 
         # Output assembly.
         #
-        # When extra_blocks is present (new format), the stored system-reminder
-        # already contains all context metadata + time.  Pass it through as-is
-        # to avoid duplication.  We only need DB contexts for image base64.
-        #
-        # When extra_blocks is empty (old format), rebuild a system-reminder
-        # from the DB context records.
-        if extra_blocks:
-            if vision_parts:
-                return [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": text_content},
-                            *vision_parts,
-                            *extra_blocks,
-                        ],
-                    }
-                ]
-            return [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": text_content},
-                        *extra_blocks,
-                    ],
-                }
-            ]
+        # Context content (attachment text, KB text) is always rebuilt from
+        # SubtaskContext records — the source of truth.  The stored
+        # system-reminder in extra_blocks may only carry <CurrentTime> (after
+        # context stripping on persist) or full context (legacy data).  Either
+        # way we extract just <CurrentTime> and reconstruct the rest.
+        time_text = _extract_time_text(extra_blocks) if extra_blocks else None
 
-        # Old format fallback: rebuild system-reminder from DB context records.
         context_parts: list[str] = []
         if attachment_text_parts:
             context_parts.append(
@@ -670,6 +671,8 @@ def _build_history_messages(
             context_parts.append(
                 "<knowledge_base>" + "".join(kb_text_parts) + "</knowledge_base>"
             )
+        if time_text:
+            context_parts.append(time_text)
 
         if vision_parts:
             # Add image metadata headers as attachment context
