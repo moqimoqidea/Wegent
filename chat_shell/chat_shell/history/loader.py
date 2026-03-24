@@ -20,12 +20,59 @@ For HTTP Mode (CHAT_SHELL_MODE=http):
 import asyncio
 import json
 import logging
+import re
 from typing import Any, List, Optional
 
 from chat_shell.core.config import settings
 from shared.prompts.constants import parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
+
+# Regex to match <selected_documents>...</selected_documents> blocks inside
+# system-reminder text.  Documents are stored separately in SubtaskContext,
+# so they must be stripped from the prompt column to avoid exceeding the
+# MySQL TEXT column size limit (65535 bytes).
+_SELECTED_DOCS_RE = re.compile(
+    r"<selected_documents>.*?</selected_documents>", re.DOTALL
+)
+
+_SYSTEM_REMINDER_OPEN = "<system-reminder>"
+
+
+def _strip_selected_documents(
+    content: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Strip ``<selected_documents>`` from system-reminder blocks.
+
+    Documents are already persisted separately in ``SubtaskContext`` and will
+    be re-injected when loading history.  Removing them before storing to the
+    ``subtask.prompt`` column avoids exceeding the MySQL TEXT size limit.
+
+    If stripping leaves an empty ``<system-reminder></system-reminder>``
+    wrapper, the block is dropped entirely.
+    """
+    result: list[dict[str, Any]] = []
+    for block in content:
+        text = block.get("text", "")
+        if not text.lstrip().startswith(_SYSTEM_REMINDER_OPEN):
+            result.append(block)
+            continue
+
+        cleaned = _SELECTED_DOCS_RE.sub("", text)
+
+        # Check whether the system-reminder still has meaningful content
+        inner = (
+            cleaned.replace("<system-reminder>", "")
+            .replace("</system-reminder>", "")
+            .strip()
+        )
+        if not inner:
+            # Nothing left after stripping; drop the block
+            continue
+
+        result.append({"type": block.get("type", "text"), "text": cleaned})
+    return result
+
 
 # Global remote history store instance (lazy initialized for HTTP mode)
 _remote_history_store: Optional["RemoteHistoryStore"] = None
@@ -136,7 +183,11 @@ async def update_user_message_content(
     # in SubtaskContext and would bloat the prompt column unnecessarily.
     if isinstance(content, list):
         storage_content: Any = [b for b in content if b.get("type") != "image_url"]
-        # Keep as list so future loads still see the multi-block structure.
+        # Strip <selected_documents> from system-reminder blocks: documents
+        # are persisted in SubtaskContext and re-injected at history-load time.
+        # Keeping them in the prompt column risks exceeding the MySQL TEXT
+        # column limit (65535 bytes), especially for Chinese content.
+        storage_content = _strip_selected_documents(storage_content)
     else:
         storage_content = content
 
@@ -191,7 +242,9 @@ def _update_user_message_in_db_sync(user_subtask_id: int, content: Any) -> None:
             subtask = db.query(Subtask).filter(Subtask.id == user_subtask_id).first()
             if subtask and subtask.role == SubtaskRole.USER:
                 subtask.prompt = (
-                    content if isinstance(content, str) else json.dumps(content)
+                    content
+                    if isinstance(content, str)
+                    else json.dumps(content, ensure_ascii=False)
                 )
                 db.commit()
                 logger.debug(
