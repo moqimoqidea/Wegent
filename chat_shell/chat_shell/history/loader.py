@@ -870,11 +870,46 @@ def _build_knowledge_base_text_prefix(context) -> str:
     return f"[Knowledge Base: {kb_name} (ID: {kb_id})]\n{context.extracted_text}\n\n"
 
 
+def _group_messages(history: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Group messages into atomic units for safe truncation.
+
+    A tool-call group consists of an assistant message with ``tool_calls``
+    followed by its corresponding ``tool`` response messages.  Splitting
+    such a group would produce orphaned ``function_call_output`` items
+    (without matching ``function_call``) when converted to the OpenAI
+    Responses API format, causing API errors.
+
+    Returns a list of groups where each group is a list of message dicts
+    that must be kept or removed together.
+    """
+    groups: list[list[dict[str, Any]]] = []
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            # Collect assistant + all following tool responses as one group
+            group = [msg]
+            i += 1
+            while i < len(history) and history[i].get("role") == "tool":
+                group.append(history[i])
+                i += 1
+            groups.append(group)
+        else:
+            groups.append([msg])
+            i += 1
+    return groups
+
+
 def _truncate_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Truncate chat history keeping first N and last M messages.
 
     This is used for group chat to reduce prompt length while retaining
     the start of the conversation and the most recent context.
+
+    Tool-call groups (assistant with ``tool_calls`` + tool responses) are
+    treated as atomic units so that truncation never splits a group.
+    The actual number of messages kept may slightly exceed ``first_n + last_n``
+    to preserve group integrity.
     """
 
     first_n = settings.GROUP_CHAT_HISTORY_FIRST_MESSAGES
@@ -887,6 +922,34 @@ def _truncate_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(history) <= first_n + last_n:
         return history
 
-    # Handle edge case: history[-0:] returns full list, not empty list
-    tail = history[-last_n:] if last_n > 0 else []
-    return [*history[:first_n], *tail]
+    groups = _group_messages(history)
+
+    # Determine which groups to keep from the head (first_n messages)
+    head_count = 0
+    head_groups = 0
+    for g in groups:
+        if head_count >= first_n:
+            break
+        head_count += len(g)
+        head_groups += 1
+
+    # Determine which groups to keep from the tail (last_n messages)
+    tail_count = 0
+    tail_groups = 0
+    for g in reversed(groups):
+        if tail_count >= last_n:
+            break
+        tail_count += len(g)
+        tail_groups += 1
+
+    # If head + tail covers all groups, return as-is
+    if head_groups + tail_groups >= len(groups):
+        return history
+
+    head = groups[:head_groups]
+    tail = groups[len(groups) - tail_groups :] if tail_groups > 0 else []
+
+    result: list[dict[str, Any]] = []
+    for g in [*head, *tail]:
+        result.extend(g)
+    return result
