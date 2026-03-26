@@ -266,9 +266,7 @@ class LangChainModelFactory:
                 # For Anthropic: thinking mode requires temperature=1
                 if provider == "anthropic" and "thinking" in think_params:
                     params["temperature"] = 1.0
-                    logger.info(
-                        "Anthropic thinking enabled: forcing temperature=1.0"
-                    )
+                    logger.info("Anthropic thinking enabled: forcing temperature=1.0")
 
                 # For OpenAI-compatible providers: use reasoning-aware subclass
                 # to capture reasoning_content from non-standard deltas
@@ -295,9 +293,7 @@ class LangChainModelFactory:
         if use_reasoning_wrapper and model_class is ChatOpenAI:
             model_class = ChatOpenAIWithReasoning
 
-        add_span_event(
-            "instantiating_model_class", {"class": model_class.__name__}
-        )
+        add_span_event("instantiating_model_class", {"class": model_class.__name__})
         model = model_class(**params)
         add_span_event("model_instance_created")
         return model
