@@ -22,6 +22,7 @@ import logging
 from typing import Any, Optional
 
 from chat_shell.core.config import settings
+from chat_shell.messages.utils import group_tool_call_messages as _group_messages
 from shared.prompts.constants import parse_prompt_blocks
 
 logger = logging.getLogger(__name__)
@@ -868,36 +869,6 @@ def _build_knowledge_base_text_prefix(context) -> str:
     kb_name = context.name or "Knowledge Base"
     kb_id = context.knowledge_id or "unknown"
     return f"[Knowledge Base: {kb_name} (ID: {kb_id})]\n{context.extracted_text}\n\n"
-
-
-def _group_messages(history: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    """Group messages into atomic units for safe truncation.
-
-    A tool-call group consists of an assistant message with ``tool_calls``
-    followed by its corresponding ``tool`` response messages.  Splitting
-    such a group would produce orphaned ``function_call_output`` items
-    (without matching ``function_call``) when converted to the OpenAI
-    Responses API format, causing API errors.
-
-    Returns a list of groups where each group is a list of message dicts
-    that must be kept or removed together.
-    """
-    groups: list[list[dict[str, Any]]] = []
-    i = 0
-    while i < len(history):
-        msg = history[i]
-        if msg.get("role") == "assistant" and msg.get("tool_calls"):
-            # Collect assistant + all following tool responses as one group
-            group = [msg]
-            i += 1
-            while i < len(history) and history[i].get("role") == "tool":
-                group.append(history[i])
-                i += 1
-            groups.append(group)
-        else:
-            groups.append([msg])
-            i += 1
-    return groups
 
 
 def _truncate_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
