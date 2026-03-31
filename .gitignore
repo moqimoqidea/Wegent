@@ -100,3 +100,4 @@ coverage/
 *.spec
 executor/build/
 executor/dist/
+docs/superpowers/
