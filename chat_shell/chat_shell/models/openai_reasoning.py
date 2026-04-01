@@ -75,6 +75,11 @@ class ChatOpenAIWithReasoning(ChatOpenAI):
         enabled (e.g., Kimi, DeepSeek), ``reasoning_content`` must be present
         in assistant messages in the conversation history, otherwise the API
         returns a 400 error.
+
+        Handles two data formats:
+        - **Legacy**: ``reasoning_content`` in ``additional_kwargs``
+        - **Canonical**: ``{"type": "reasoning", "reasoning": "..."}`` blocks
+          in the message content list (written by normalized serialization)
         """
         # Capture original LangChain messages before they are converted
         lc_messages = self._convert_input(input_).to_messages()
@@ -87,12 +92,44 @@ class ChatOpenAIWithReasoning(ChatOpenAI):
         payload_messages = payload.get("messages")
         if payload_messages and len(payload_messages) == len(lc_messages):
             for lc_msg, api_msg in zip(lc_messages, payload_messages):
-                if (
-                    isinstance(lc_msg, AIMessage)
-                    and api_msg.get("role") == "assistant"
+                if not (
+                    isinstance(lc_msg, AIMessage) and api_msg.get("role") == "assistant"
                 ):
-                    reasoning = lc_msg.additional_kwargs.get("reasoning_content")
-                    if reasoning is not None:
-                        api_msg["reasoning_content"] = reasoning
+                    continue
+
+                # Path 1: Legacy format — reasoning_content in additional_kwargs
+                reasoning = lc_msg.additional_kwargs.get("reasoning_content")
+                if reasoning is not None:
+                    api_msg["reasoning_content"] = reasoning
+                    continue
+
+                # Path 2: Canonical format — reasoning blocks in content list
+                api_content = api_msg.get("content")
+                if not isinstance(api_content, list):
+                    continue
+
+                reasoning_texts: list[str] = []
+                non_reasoning: list = []
+                for block in api_content:
+                    if isinstance(block, dict) and block.get("type") == "reasoning":
+                        text = block.get("reasoning", "")
+                        if text:
+                            reasoning_texts.append(text)
+                    else:
+                        non_reasoning.append(block)
+
+                if reasoning_texts:
+                    api_msg["reasoning_content"] = "\n".join(reasoning_texts)
+                    # Replace content with non-reasoning blocks only;
+                    # DeepSeek/Kimi APIs reject unknown block types.
+                    if (
+                        len(non_reasoning) == 1
+                        and non_reasoning[0].get("type") == "text"
+                    ):
+                        api_msg["content"] = non_reasoning[0]["text"]
+                    elif non_reasoning:
+                        api_msg["content"] = non_reasoning
+                    else:
+                        api_msg["content"] = ""
 
         return payload
