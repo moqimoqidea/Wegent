@@ -282,11 +282,12 @@ def create_new_task(
             .first()
         )
         if kb:
+            kb_spec = kb.json.get("spec", {}) if kb.json else {}
+            # Note: namespace is no longer stored - ID is sufficient for lookup
             knowledge_base_refs = [
                 {
                     "id": kb.id,
-                    "name": kb.name,
-                    "namespace": kb.namespace,
+                    "name": kb_spec.get("name", kb.name),
                     "boundBy": user.user_name,
                     "boundAt": datetime.now().isoformat(),
                 }
