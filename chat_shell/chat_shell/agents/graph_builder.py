@@ -430,6 +430,7 @@ class LangGraphAgentBuilder:
         lc_messages = _convert_validated_messages(
             messages,
             context="agent execution input messages",
+            target_provider=self._provider,
         )
         exec_config = {"configurable": config} if config else None
 
