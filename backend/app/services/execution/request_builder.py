@@ -11,7 +11,6 @@ providing complete Bot, Model, Ghost, Shell, and Skill resolution.
 """
 
 import logging
-import urllib.request
 from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel
@@ -1754,18 +1753,13 @@ Response template:
 
     @staticmethod
     def _check_mcp_server_reachable(server: dict) -> bool:
-        """Check if an MCP server URL is reachable with a short timeout.
-
-        Sends a GET request (not HEAD, as some servers like SSE endpoints
-        don't support HEAD method and will timeout). Any HTTP response
-        (including 4xx/5xx) means the server is reachable. Only connection
-        failures are treated as unreachable.
+        """Check if an MCP server config is valid without probing the network.
 
         Args:
             server: Server config dict with 'url' and optional 'headers'
 
         Returns:
-            True if server responded or is stdio type, False on connection failure
+            True if the config should be kept, False for obviously invalid configs
         """
         server_type = server.get("type", "").lower()
 
@@ -1787,28 +1781,7 @@ Response template:
         if "${{backend_url}}" in url:
             return True
 
-        try:
-            # Use GET instead of HEAD because some servers (especially SSE endpoints)
-            # don't support HEAD method and will timeout
-            req = urllib.request.Request(url, method="GET")
-            # Add headers, skipping unresolved placeholders
-            headers = server.get("headers", server.get("auth", {}))
-            if isinstance(headers, dict):
-                for k, v in headers.items():
-                    if isinstance(v, str) and not v.startswith("${{"):
-                        req.add_header(k, v)
-            urllib.request.urlopen(req, timeout=5)
-            return True
-        except urllib.error.HTTPError:
-            # Any HTTP response (including 4xx/5xx) means the server is reachable
-            return True
-        except Exception as e:
-            logger.warning(
-                "[MCP-CHECK] Failed to check server reachability: url=%s, error=%s",
-                url,
-                str(e),
-            )
-            return False
+        return True
 
     def _filter_reachable_mcp_servers(self, mcp_servers: list) -> list:
         """Filter out unreachable MCP servers.
