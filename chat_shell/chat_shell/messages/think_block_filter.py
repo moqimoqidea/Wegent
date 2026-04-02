@@ -40,6 +40,13 @@ def _infer_provider(msg: dict[str, Any]) -> str | None:
             if block_type == _REASONING_TYPE and "summary" in block:
                 # OpenAI Responses API format (pre-normalization legacy)
                 return "openai"
+            if (
+                block_type == _REASONING_TYPE
+                and isinstance(block.get("extras"), dict)
+                and block["extras"].get("signature")
+            ):
+                # Canonical reasoning with Anthropic signature
+                return "anthropic"
 
     # DeepSeek/Kimi: reasoning_content in additional_kwargs
     additional_kwargs = msg.get("additional_kwargs")
@@ -51,11 +58,11 @@ def _infer_provider(msg: dict[str, Any]) -> str | None:
     return None
 
 
-def _strip_reasoning_from_content(content: list) -> str | list:
+def _strip_reasoning_from_content(content: list) -> list:
     """Remove all reasoning blocks from a content block list.
 
     Returns:
-        The filtered list, or an empty string if all blocks were removed.
+        The filtered list, or a single empty text block if all were removed.
     """
     filtered = [
         block
@@ -66,8 +73,35 @@ def _strip_reasoning_from_content(content: list) -> str | list:
         )
     ]
     if not filtered:
-        return ""
+        return [{"type": "text", "text": ""}]
     return filtered
+
+
+def _denormalize_for_anthropic(content: list) -> list:
+    """Convert canonical reasoning blocks back to Anthropic native thinking format.
+
+    Transforms ``{"type": "reasoning", "reasoning": "...", "extras": {"signature": "..."}}``
+    back to ``{"type": "thinking", "thinking": "...", "signature": "..."}``.
+
+    Non-reasoning blocks are passed through unchanged.
+    """
+    result: list = []
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != _REASONING_TYPE:
+            result.append(block)
+            continue
+
+        thinking_block: dict[str, Any] = {
+            "type": "thinking",
+            "thinking": block.get("reasoning", ""),
+        }
+        # Promote extras entries (e.g. signature) to top-level
+        extras = block.get("extras")
+        if isinstance(extras, dict):
+            for k, v in extras.items():
+                thinking_block[k] = v
+        result.append(thinking_block)
+    return result
 
 
 def strip_foreign_reasoning_blocks(
@@ -112,13 +146,24 @@ def strip_foreign_reasoning_blocks(
         else:
             source_provider = _infer_provider(msg) or ""
 
-        # Same provider: keep everything
+        content = msg.get("content")
+
+        # Same provider: keep everything (denormalize for Anthropic)
         if source_provider == target_provider:
-            result.append(msg)
+            if target_provider == "anthropic" and isinstance(content, list):
+                denormalized = copy.deepcopy(msg)
+                denormalized["content"] = _denormalize_for_anthropic(content)
+                # Inject response_metadata as a top-level key so
+                # convert_to_messages passes it to AIMessage.response_metadata.
+                # LangChain Anthropic's _format_messages checks this to keep
+                # thinking blocks from the same provider.
+                denormalized["response_metadata"] = {"model_provider": "anthropic"}
+                result.append(denormalized)
+            else:
+                result.append(msg)
             continue
 
         # Different provider (or unknown): strip reasoning blocks
-        content = msg.get("content")
         needs_strip = False
 
         if isinstance(content, list):
@@ -140,8 +185,8 @@ def strip_foreign_reasoning_blocks(
             result.append(msg)
             continue
 
-        # Create a shallow copy and strip reasoning
-        stripped = copy.copy(msg)
+        # Create a deep copy and strip reasoning
+        stripped = copy.deepcopy(msg)
 
         if isinstance(content, list) and needs_strip:
             stripped["content"] = _strip_reasoning_from_content(content)

@@ -212,13 +212,6 @@ def _normalize_content_block(block: dict[str, Any]) -> dict[str, Any] | None:
             result["extras"] = extras
         return result
 
-    if block_type == "reasoning" and "summary" in block:
-        # OpenAI Responses API: {"type": "reasoning", "summary": [{"type": "summary_text", "text": "..."}]}
-        # Explode each summary item into a separate ReasoningContentBlock.
-        # This is called per-block so we return the first and handle multi via caller.
-        # Actually, return the block as-is for the caller to handle exploding.
-        return block  # handled by _normalize_content_blocks which iterates summary
-
     # "text", "reasoning" (already canonical), or other block types: keep as-is
     return block
 

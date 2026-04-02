@@ -105,7 +105,7 @@ class TestCrossModelSwitch:
                         assert block.get("type") != "reasoning"
 
     def test_same_provider_preserves_reasoning(self):
-        """Claude → Claude preserves thinking blocks (as canonical reasoning)."""
+        """Claude → Claude denormalizes reasoning back to thinking format."""
         claude_msg = AIMessage(
             content=[
                 {"type": "thinking", "thinking": "Analysis...", "signature": "sig"},
@@ -121,14 +121,73 @@ class TestCrossModelSwitch:
             history, context="test", target_provider="anthropic"
         )
 
-        # Verify: reasoning blocks are preserved
-        has_reasoning = False
+        # Verify: thinking blocks are restored (not canonical reasoning)
+        has_thinking = False
         for msg in lc_messages:
             if hasattr(msg, "content") and isinstance(msg.content, list):
                 for block in msg.content:
-                    if isinstance(block, dict) and block.get("type") == "reasoning":
-                        has_reasoning = True
-        assert has_reasoning, "Reasoning blocks should be preserved for same provider"
+                    if isinstance(block, dict) and block.get("type") == "thinking":
+                        has_thinking = True
+                        assert block.get("thinking") == "Analysis..."
+                        assert block.get("signature") == "sig"
+        assert has_thinking, "Thinking blocks should be restored for same provider"
+
+    def test_claude_to_claude_round_trip_has_response_metadata(self):
+        """Full Claude round-trip produces AIMessage with correct response_metadata."""
+        claude_msg = AIMessage(
+            content=[
+                {"type": "thinking", "thinking": "Deep thought", "signature": "s1"},
+                {"type": "text", "text": "42"},
+            ]
+        )
+        chain = _serialize_messages_chain(
+            [claude_msg], provider="anthropic", model_id="claude-sonnet"
+        )
+
+        history = [{"role": "user", "content": "Meaning of life?"}] + chain
+        lc_messages = _convert_validated_messages(
+            history, context="test", target_provider="anthropic"
+        )
+
+        # The assistant message should have response_metadata set
+        assistant_msgs = [m for m in lc_messages if hasattr(m, "response_metadata")]
+        assert any(
+            m.response_metadata.get("model_provider") == "anthropic"
+            for m in assistant_msgs
+        ), "response_metadata['model_provider'] should be 'anthropic'"
+
+    def test_claude_to_claude_legacy_without_model_info(self):
+        """Legacy messages without model_info but with signature are denormalized."""
+        # Simulate legacy stored data: canonical reasoning with extras.signature
+        # but no model_info field
+        history = [
+            {"role": "user", "content": "Question"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "Legacy thought",
+                        "extras": {"signature": "legacy_sig"},
+                    },
+                    {"type": "text", "text": "Answer"},
+                ],
+                # No model_info — _infer_provider should detect signature
+            },
+        ]
+        lc_messages = _convert_validated_messages(
+            history, context="test", target_provider="anthropic"
+        )
+
+        # Verify denormalization happened
+        has_thinking = False
+        for msg in lc_messages:
+            if hasattr(msg, "content") and isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "thinking":
+                        has_thinking = True
+                        assert block.get("signature") == "legacy_sig"
+        assert has_thinking, "Legacy messages with signature should be denormalized"
 
     def test_tool_call_sequence_preserved_across_model_switch(self):
         """Tool call sequences remain valid after cross-model reasoning strip."""

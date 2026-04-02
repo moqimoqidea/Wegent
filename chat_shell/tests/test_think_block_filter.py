@@ -7,6 +7,7 @@
 import pytest
 
 from chat_shell.messages.think_block_filter import (
+    _infer_provider,
     strip_foreign_reasoning_blocks,
 )
 
@@ -15,7 +16,7 @@ class TestStripForeignReasoningBlocks:
     """Tests for strip_foreign_reasoning_blocks."""
 
     def test_same_provider_preserves_reasoning(self):
-        """Reasoning blocks from the same provider are kept."""
+        """Anthropic same-provider reasoning blocks are denormalized to thinking format."""
         messages = [
             {
                 "role": "assistant",
@@ -31,7 +32,13 @@ class TestStripForeignReasoningBlocks:
             },
         ]
         result = strip_foreign_reasoning_blocks(messages, "anthropic")
-        assert result[0]["content"] == messages[0]["content"]
+        content = result[0]["content"]
+        assert content[0] == {
+            "type": "thinking",
+            "thinking": "thinking...",
+            "signature": "abc",
+        }
+        assert content[1] == {"type": "text", "text": "answer"}
 
     def test_cross_provider_strips_reasoning(self):
         """Reasoning blocks from a different provider are removed."""
@@ -69,8 +76,8 @@ class TestStripForeignReasoningBlocks:
         result = strip_foreign_reasoning_blocks(messages, "openai")
         assert result == messages
 
-    def test_all_reasoning_stripped_becomes_empty_string(self):
-        """If all content blocks are reasoning, content becomes empty string."""
+    def test_all_reasoning_stripped_becomes_empty_text_block(self):
+        """If all content blocks are reasoning, content becomes an empty text block."""
         messages = [
             {
                 "role": "assistant",
@@ -81,7 +88,7 @@ class TestStripForeignReasoningBlocks:
             },
         ]
         result = strip_foreign_reasoning_blocks(messages, "openai")
-        assert result[0]["content"] == ""
+        assert result[0]["content"] == [{"type": "text", "text": ""}]
 
     def test_legacy_anthropic_thinking_blocks_inferred(self):
         """Legacy Claude thinking blocks (no model_info) are detected heuristically."""
@@ -120,13 +127,17 @@ class TestStripForeignReasoningBlocks:
         assert "additional_kwargs" not in result[0]
 
     def test_mixed_history_selective_stripping(self):
-        """Mixed provider history: only cross-provider reasoning is stripped."""
+        """Mixed provider history: cross-provider reasoning stripped, same-provider denormalized."""
         messages = [
             {"role": "user", "content": "Q1"},
             {
                 "role": "assistant",
                 "content": [
-                    {"type": "reasoning", "reasoning": "claude thought"},
+                    {
+                        "type": "reasoning",
+                        "reasoning": "claude thought",
+                        "extras": {"signature": "sig1"},
+                    },
                     {"type": "text", "text": "A1"},
                 ],
                 "model_info": {"provider": "anthropic", "model": "claude"},
@@ -145,6 +156,15 @@ class TestStripForeignReasoningBlocks:
         result = strip_foreign_reasoning_blocks(messages, "openai")
         assert result[1]["content"] == [{"type": "text", "text": "A1"}]
         assert len(result[3]["content"]) == 2  # both blocks preserved
+
+        # Target is anthropic: claude reasoning denormalized to thinking, gpt stripped
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        assert result[1]["content"][0] == {
+            "type": "thinking",
+            "thinking": "claude thought",
+            "signature": "sig1",
+        }
+        assert result[3]["content"] == [{"type": "text", "text": "A2"}]
 
     def test_original_messages_not_mutated(self):
         """The original message dicts are not modified in-place."""
@@ -169,3 +189,115 @@ class TestStripForeignReasoningBlocks:
         ]
         result = strip_foreign_reasoning_blocks(messages, "anthropic")
         assert result == messages
+
+    def test_anthropic_same_provider_sets_response_metadata(self):
+        """Denormalized Anthropic messages include response_metadata for LangChain."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "thought",
+                        "extras": {"signature": "sig"},
+                    },
+                    {"type": "text", "text": "answer"},
+                ],
+                "model_info": {"provider": "anthropic", "model": "claude"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        # response_metadata is injected as top-level key for convert_to_messages
+        assert result[0]["response_metadata"] == {"model_provider": "anthropic"}
+
+    def test_anthropic_same_provider_does_not_mutate_original(self):
+        """Denormalization creates a deep copy, original is untouched."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "thought",
+                        "extras": {"signature": "sig"},
+                    },
+                ],
+                "model_info": {"provider": "anthropic", "model": "claude"},
+            },
+        ]
+        original_content = list(messages[0]["content"])
+        strip_foreign_reasoning_blocks(messages, "anthropic")
+        assert messages[0]["content"] == original_content
+        assert "response_metadata" not in messages[0]
+
+    def test_non_anthropic_same_provider_passes_through(self):
+        """Non-Anthropic same-provider messages are not denormalized."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "reasoning", "reasoning": "thinking"},
+                    {"type": "text", "text": "answer"},
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "openai")
+        # reasoning blocks preserved as-is (not converted to thinking)
+        assert result[0]["content"][0]["type"] == "reasoning"
+        assert "additional_kwargs" not in result[0]
+
+
+class TestInferProvider:
+    """Tests for _infer_provider heuristic."""
+
+    def test_legacy_thinking_block_returns_anthropic(self):
+        msg = {
+            "role": "assistant",
+            "content": [{"type": "thinking", "thinking": "..."}],
+        }
+        assert _infer_provider(msg) == "anthropic"
+
+    def test_canonical_reasoning_with_signature_returns_anthropic(self):
+        msg = {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "reasoning",
+                    "reasoning": "...",
+                    "extras": {"signature": "abc"},
+                }
+            ],
+        }
+        assert _infer_provider(msg) == "anthropic"
+
+    def test_reasoning_with_summary_returns_openai(self):
+        msg = {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "x"}],
+                }
+            ],
+        }
+        assert _infer_provider(msg) == "openai"
+
+    def test_canonical_reasoning_without_extras_returns_none(self):
+        msg = {
+            "role": "assistant",
+            "content": [{"type": "reasoning", "reasoning": "..."}],
+        }
+        assert _infer_provider(msg) is None
+
+    def test_additional_kwargs_reasoning_content_returns_openai(self):
+        msg = {
+            "role": "assistant",
+            "content": "answer",
+            "additional_kwargs": {"reasoning_content": "deep thinking"},
+        }
+        assert _infer_provider(msg) == "openai"
+
+    def test_plain_text_returns_none(self):
+        msg = {"role": "assistant", "content": "plain answer"}
+        assert _infer_provider(msg) is None
