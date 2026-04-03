@@ -72,6 +72,11 @@ export interface SkillRefMeta {
   is_public: boolean
 }
 
+export interface KnowledgeBaseDefaultRef {
+  id: number
+  name: string
+}
+
 export interface Bot {
   id: number
   name: string
@@ -81,6 +86,7 @@ export interface Bot {
   agent_config: Record<string, unknown>
   system_prompt: string
   mcp_servers: Record<string, unknown>
+  default_knowledge_base_refs?: KnowledgeBaseDefaultRef[]
   skills?: string[] // Skills associated with this bot
   skill_refs?: Record<string, SkillRefMeta>
   preload_skills?: string[] // Skills to preload into system prompt

@@ -128,12 +128,20 @@ class SkillRefMeta(BaseModel):
     is_public: bool = Field(False, description="Whether this is a public skill")
 
 
+class KnowledgeBaseDefaultRef(BaseModel):
+    """Knowledge base binding used for Ghost-level defaults."""
+
+    id: int
+    name: str
+
+
 # Ghost CRD schemas
 class GhostSpec(BaseModel):
     """Ghost specification"""
 
     systemPrompt: str
     mcpServers: Optional[Dict[str, Any]] = None
+    defaultKnowledgeBaseRefs: Optional[List[KnowledgeBaseDefaultRef]] = None
     skills: Optional[List[str]] = None  # Skill names list
     preload_skills: Optional[List[str]] = Field(
         None,
