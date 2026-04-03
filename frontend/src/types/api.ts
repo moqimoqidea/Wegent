@@ -480,6 +480,63 @@ export interface ClarificationAnswerPayload {
   answers: ClarificationAnswer[]
 }
 
+// Ask User Types (MCP tool-based interactive form)
+export interface AskUserOption {
+  label: string
+  value: string
+  recommended?: boolean
+}
+
+/** A single question in multi-question mode */
+export interface AskUserQuestion {
+  /** Unique identifier for this question within the form (e.g. 'q1', 'destination') */
+  id: string
+  question: string
+  description?: string | null
+  input_type: 'choice' | 'text'
+  options?: AskUserOption[] | null
+  multi_select: boolean
+  required: boolean
+  default?: string[] | null
+  placeholder?: string | null
+}
+
+export interface AskUserFormData {
+  type: 'ask_user_question'
+  ask_id: string
+  /** Tool use ID from Claude (UUID format) - used as fallback for answer submission */
+  tool_use_id?: string | null
+  task_id: number
+  subtask_id: number
+  /** Top-level question text (used as form header in multi-question mode, or the question in single mode) */
+  question: string
+  description?: string | null
+  /** Multi-question mode: list of questions, each with independent type/options */
+  questions?: AskUserQuestion[] | null
+  /** Single-question mode fields (ignored when questions is provided) */
+  options?: AskUserOption[] | null
+  multi_select?: boolean
+  input_type?: 'choice' | 'text'
+  placeholder?: string | null
+  required: boolean
+  default?: string[] | null
+  /**
+   * Tool output from the backend after the tool completes.
+   * Used to detect timeout: {"error": "Timeout waiting for user response", "answer": null}
+   */
+  tool_output?: Record<string, unknown> | null
+}
+
+export interface AskUserAnswer {
+  ask_id: string
+  /** Tool use ID for fallback lookup when ask_id doesn't match */
+  tool_use_id?: string | null
+  /** Single-question answer */
+  answer?: string | string[]
+  /** Multi-question answers: {question_id: value_or_list} */
+  answers?: Record<string, string | string[]>
+}
+
 export interface FinalPromptData {
   type: 'final_prompt'
   final_prompt: string
