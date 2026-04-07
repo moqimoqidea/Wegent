@@ -120,8 +120,15 @@ def _denormalize_for_openai_responses(content: list) -> list:
 
     Blocks without ``extras.id`` or ``extras.encrypted_content`` (i.e. not
     originating from the Responses API) are passed through unchanged.
+
+    When reasoning blocks lack ``extras`` (legacy corrupted data) but
+    sibling text blocks carry an ``id`` (e.g. ``msg_...``), the text
+    block ``id`` is stripped to prevent the API from expecting a
+    reasoning item that no longer exists.
     """
     result: list = []
+    has_reasoning_id = False
+
     for block in content:
         if not isinstance(block, dict) or block.get("type") != _REASONING_TYPE:
             result.append(block)
@@ -131,9 +138,11 @@ def _denormalize_for_openai_responses(content: list) -> list:
         if not isinstance(extras, dict) or (
             "id" not in extras and "encrypted_content" not in extras
         ):
-            # Not an exploded Responses API reasoning block
+            # Not an exploded Responses API reasoning block — pass through
             result.append(block)
             continue
+
+        has_reasoning_id = True
 
         # Reconstruct the original Responses API format
         rebuilt: dict[str, Any] = {"type": _REASONING_TYPE}
@@ -147,6 +156,20 @@ def _denormalize_for_openai_responses(content: list) -> list:
             rebuilt["encrypted_content"] = extras["encrypted_content"]
 
         result.append(rebuilt)
+
+    # If no reasoning block had an id (corrupted/legacy data), strip ``id``
+    # from text blocks to prevent orphaned message references that the
+    # Responses API would reject.
+    if not has_reasoning_id:
+        result = [
+            {k: v for k, v in block.items() if k != "id"}
+            if isinstance(block, dict)
+            and block.get("type") in ("text", "output_text")
+            and "id" in block
+            else block
+            for block in result
+        ]
+
     return result
 
 

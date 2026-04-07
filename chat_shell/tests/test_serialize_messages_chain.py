@@ -227,6 +227,28 @@ class TestSerializeMessagesChain:
         assert content[1]["reasoning"] == "Step 2"
         assert content[2] == {"type": "text", "text": "Done"}
 
+    def test_openai_responses_reasoning_empty_summary_preserves_extras(self):
+        """OpenAI Responses API reasoning blocks with empty summary preserve id/encrypted_content."""
+        msg = AIMessage(
+            content=[
+                {
+                    "type": "reasoning",
+                    "summary": [],
+                    "id": "rs_abc",
+                    "encrypted_content": "gAAAA_data",
+                },
+                {"type": "text", "text": "Answer"},
+            ]
+        )
+        result = _serialize_messages_chain([msg])
+        content = result[0]["content"]
+        assert len(content) == 2
+        reasoning = content[0]
+        assert reasoning["type"] == "reasoning"
+        assert reasoning["reasoning"] == ""
+        assert reasoning["extras"]["id"] == "rs_abc"
+        assert reasoning["extras"]["encrypted_content"] == "gAAAA_data"
+
     def test_model_info_added_when_provider_given(self):
         """model_info is added to each assistant entry when provider is passed."""
         msg = AIMessage(content="Hello")

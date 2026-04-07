@@ -357,6 +357,35 @@ class TestStripForeignReasoningBlocks:
         }
         assert result[0]["content"][2] == {"type": "text", "text": "answer"}
 
+    def test_openai_same_provider_orphaned_text_id_stripped(self):
+        """When reasoning blocks lack extras (corrupted data), text block ids are stripped.
+
+        This prevents the API error where a message item references a reasoning
+        item that no longer exists.
+        """
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "reasoning", "reasoning": ""},
+                    {
+                        "id": "msg_abc123",
+                        "type": "text",
+                        "text": "answer",
+                        "index": 1,
+                    },
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5.4"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "openai")
+        text_block = result[0]["content"][1]
+        # id should be stripped to prevent orphaned message reference
+        assert "id" not in text_block
+        assert text_block["text"] == "answer"
+        # reasoning block passed through unchanged
+        assert result[0]["content"][0] == {"type": "reasoning", "reasoning": ""}
+
 
 class TestInferProvider:
     """Tests for _infer_provider heuristic."""
