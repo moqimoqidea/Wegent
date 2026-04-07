@@ -512,3 +512,75 @@ class TestInferProvider:
     def test_plain_text_returns_none(self):
         msg = {"role": "assistant", "content": "plain answer"}
         assert _infer_provider(msg) is None
+
+
+class TestSanitizeToolIdsForAnthropic:
+    """Tests for tool_call ID sanitization when targeting Claude."""
+
+    def test_kimi_tool_ids_sanitized_for_claude(self):
+        """Kimi-style tool IDs with dots and colons are sanitized."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "function_call",
+                        "call_id": "functions.load_skill:10",
+                        "name": "load_skill",
+                    },
+                ],
+                "tool_calls": [
+                    {"id": "functions.load_skill:10", "type": "function",
+                     "function": {"name": "load_skill", "arguments": "{}"}}
+                ],
+                "model_info": {"provider": "openai", "model": "moonshot-kimi-k2.5"},
+            },
+            {
+                "role": "tool",
+                "content": "result",
+                "tool_call_id": "functions.load_skill:10",
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        # Tool call ID should be sanitized
+        assert result[0]["tool_calls"][0]["id"] == "functions_load_skill_10"
+        assert result[0]["content"][0]["call_id"] == "functions_load_skill_10"
+        assert result[1]["tool_call_id"] == "functions_load_skill_10"
+
+    def test_valid_tool_ids_unchanged(self):
+        """Standard tool IDs matching Claude's pattern are not modified."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": "answer",
+                "tool_calls": [
+                    {"id": "call_abc123", "type": "function",
+                     "function": {"name": "test", "arguments": "{}"}}
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5"},
+            },
+            {
+                "role": "tool",
+                "content": "result",
+                "tool_call_id": "call_abc123",
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        assert result[0]["tool_calls"][0]["id"] == "call_abc123"
+        assert result[1]["tool_call_id"] == "call_abc123"
+
+    def test_non_anthropic_target_no_sanitization(self):
+        """Tool IDs are not sanitized when targeting non-Anthropic providers."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": "answer",
+                "tool_calls": [
+                    {"id": "functions.test:1", "type": "function",
+                     "function": {"name": "test", "arguments": "{}"}}
+                ],
+                "model_info": {"provider": "openai", "model": "kimi"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "openai")
+        assert result[0]["tool_calls"][0]["id"] == "functions.test:1"

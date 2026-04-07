@@ -1,4 +1,4 @@
-"""Filter provider-specific reasoning blocks from conversation history.
+"""Filter and normalize provider-specific message content for cross-model history.
 
 When users switch models mid-conversation (e.g. Claude → GPT → Gemini),
 historical messages may contain think/reasoning blocks in formats that the
@@ -11,6 +11,7 @@ the current request target.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any
 
 # Canonical block type used for all normalized reasoning content.
@@ -183,6 +184,90 @@ def _denormalize_for_openai_responses(content: list) -> list:
     return result
 
 
+# Claude API requires tool_call IDs to match ^[a-zA-Z0-9_-]+$.
+# Other providers (e.g. Kimi) may produce IDs with dots, colons, etc.
+_ANTHROPIC_TOOL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+_INVALID_TOOL_ID_CHAR_RE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _sanitize_tool_ids_for_anthropic(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Replace tool call IDs that violate Anthropic's pattern constraint.
+
+    Claude requires ``^[a-zA-Z0-9_-]+$`` for tool_use and tool_result IDs.
+    IDs from other providers (e.g. Kimi's ``functions.load_skill:10``) are
+    sanitized by replacing invalid characters with ``_``.
+
+    A mapping is maintained so that the same original ID always produces the
+    same replacement, preserving the tool_call ↔ tool_result linkage.
+    """
+    # First pass: collect all IDs that need sanitization
+    id_map: dict[str, str] = {}
+
+    def _sanitize(original: str) -> str:
+        if not original or _ANTHROPIC_TOOL_ID_RE.match(original):
+            return original
+        if original not in id_map:
+            id_map[original] = _INVALID_TOOL_ID_CHAR_RE.sub("_", original)
+        return id_map[original]
+
+    result: list[dict[str, Any]] = []
+    for msg in messages:
+        needs_copy = False
+
+        # Check tool_calls on assistant messages
+        tool_calls = msg.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tc in tool_calls:
+                tcid = tc.get("id", "")
+                if tcid and not _ANTHROPIC_TOOL_ID_RE.match(tcid):
+                    needs_copy = True
+                    break
+
+        # Check tool_call_id on tool messages
+        tcid = msg.get("tool_call_id", "")
+        if tcid and not _ANTHROPIC_TOOL_ID_RE.match(tcid):
+            needs_copy = True
+
+        # Check function_call content blocks
+        content = msg.get("content")
+        if not needs_copy and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "function_call":
+                    cid = block.get("call_id", "")
+                    if cid and not _ANTHROPIC_TOOL_ID_RE.match(cid):
+                        needs_copy = True
+                        break
+
+        if not needs_copy:
+            result.append(msg)
+            continue
+
+        sanitized = copy.deepcopy(msg)
+
+        if isinstance(sanitized.get("tool_calls"), list):
+            for tc in sanitized["tool_calls"]:
+                if "id" in tc:
+                    tc["id"] = _sanitize(tc["id"])
+                fn = tc.get("function", {})
+                if isinstance(fn, dict) and "id" in fn:
+                    fn["id"] = _sanitize(fn["id"])
+
+        if sanitized.get("tool_call_id"):
+            sanitized["tool_call_id"] = _sanitize(sanitized["tool_call_id"])
+
+        if isinstance(sanitized.get("content"), list):
+            for block in sanitized["content"]:
+                if isinstance(block, dict) and block.get("type") == "function_call":
+                    if "call_id" in block:
+                        block["call_id"] = _sanitize(block["call_id"])
+
+        result.append(sanitized)
+
+    return result
+
+
 def strip_foreign_reasoning_blocks(
     messages: list[dict[str, Any]],
     target_provider: str,
@@ -288,6 +373,11 @@ def strip_foreign_reasoning_blocks(
     # reasoning-only messages).  Filter them out when targeting Kimi models.
     if "kimi" in target_model_id.lower():
         result = _filter_empty_text_blocks(result)
+
+    # Claude requires tool_call IDs to match ^[a-zA-Z0-9_-]+$.
+    # Sanitize IDs from other providers (e.g. Kimi's "functions.load_skill:10").
+    if target_provider == "anthropic":
+        result = _sanitize_tool_ids_for_anthropic(result)
 
     return result
 
