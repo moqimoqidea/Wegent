@@ -162,11 +162,13 @@ def _denormalize_for_openai_responses(content: list) -> list:
     # Responses API would reject.
     if not has_reasoning_id:
         result = [
-            {k: v for k, v in block.items() if k != "id"}
-            if isinstance(block, dict)
-            and block.get("type") in ("text", "output_text")
-            and "id" in block
-            else block
+            (
+                {k: v for k, v in block.items() if k != "id"}
+                if isinstance(block, dict)
+                and block.get("type") in ("text", "output_text")
+                and "id" in block
+                else block
+            )
             for block in result
         ]
 
@@ -222,10 +224,6 @@ def strip_foreign_reasoning_blocks(
             if target_provider == "anthropic" and isinstance(content, list):
                 denormalized = copy.deepcopy(msg)
                 denormalized["content"] = _denormalize_for_anthropic(content)
-                # Inject response_metadata as a top-level key so
-                # convert_to_messages passes it to AIMessage.response_metadata.
-                # LangChain Anthropic's _format_messages checks this to keep
-                # thinking blocks from the same provider.
                 denormalized["response_metadata"] = {"model_provider": "anthropic"}
                 result.append(denormalized)
             elif target_provider == "openai" and isinstance(content, list):

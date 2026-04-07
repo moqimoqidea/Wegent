@@ -94,6 +94,9 @@ class MessageResponse(BaseModel):
     reasoning_content: Any | None = None
     created_at: Optional[str] = None
     loaded_skills: Optional[list[str]] = None  # Skills loaded in this message turn
+    model_info: Optional[dict] = (
+        None  # Provider/model metadata for think-block filtering
+    )
 
 
 class HistoryResponse(BaseModel):
@@ -273,6 +276,7 @@ def subtask_to_messages(
                 tool_calls=msg.get("tool_calls"),
                 reasoning_content=msg.get("reasoning_content"),
                 created_at=created_at,
+                model_info=msg.get("model_info"),
             )
             responses.append(resp)
         # Attach loaded_skills to the last *assistant* message in the chain,
