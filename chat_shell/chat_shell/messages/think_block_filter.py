@@ -83,6 +83,11 @@ def _denormalize_for_anthropic(content: list) -> list:
     Transforms ``{"type": "reasoning", "reasoning": "...", "extras": {"signature": "..."}}``
     back to ``{"type": "thinking", "thinking": "...", "signature": "..."}``.
 
+    Reasoning blocks **without** a ``signature`` in ``extras`` are dropped
+    because the Claude API requires ``signature`` on every thinking block.
+    Such blocks originate from non-Claude providers (e.g. Kimi) that use
+    the Anthropic protocol without producing signatures.
+
     Non-reasoning blocks are passed through unchanged.
     """
     result: list = []
@@ -91,15 +96,18 @@ def _denormalize_for_anthropic(content: list) -> list:
             result.append(block)
             continue
 
+        extras = block.get("extras")
+        # Claude requires signature on every thinking block.  Drop blocks
+        # from providers that don't produce one (e.g. Kimi).
+        if not isinstance(extras, dict) or not extras.get("signature"):
+            continue
+
         thinking_block: dict[str, Any] = {
             "type": "thinking",
             "thinking": block.get("reasoning", ""),
         }
-        # Promote extras entries (e.g. signature) to top-level
-        extras = block.get("extras")
-        if isinstance(extras, dict):
-            for k, v in extras.items():
-                thinking_block[k] = v
+        for k, v in extras.items():
+            thinking_block[k] = v
         result.append(thinking_block)
     return result
 
@@ -178,6 +186,7 @@ def _denormalize_for_openai_responses(content: list) -> list:
 def strip_foreign_reasoning_blocks(
     messages: list[dict[str, Any]],
     target_provider: str,
+    target_model_id: str = "",
 ) -> list[dict[str, Any]]:
     """Remove reasoning blocks from messages produced by a different provider.
 
@@ -199,6 +208,9 @@ def strip_foreign_reasoning_blocks(
         messages: Conversation history as a list of message dicts.
         target_provider: The provider of the current request
             (e.g. ``"anthropic"``, ``"openai"``, ``"google"``).
+        target_model_id: The model ID of the current request
+            (e.g. ``"claude-sonnet-4-6"``, ``"moonshot-kimi-k2.5"``).
+            Used for model-specific post-processing.
 
     Returns:
         A new list of message dicts with foreign reasoning blocks removed.
@@ -272,4 +284,41 @@ def strip_foreign_reasoning_blocks(
 
         result.append(stripped)
 
+    # Kimi rejects empty text content blocks (e.g. left over after stripping
+    # reasoning-only messages).  Filter them out when targeting Kimi models.
+    if "kimi" in target_model_id.lower():
+        result = _filter_empty_text_blocks(result)
+
     return result
+
+
+def _filter_empty_text_blocks(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove empty text blocks from assistant message content lists.
+
+    Some models (e.g. Kimi) reject requests containing empty text blocks.
+    These blocks typically appear after reasoning-only content is stripped.
+    """
+    filtered: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            filtered.append(msg)
+            continue
+
+        content = msg.get("content")
+        if not isinstance(content, list):
+            filtered.append(msg)
+            continue
+
+        non_empty = [
+            block
+            for block in content
+            if not (
+                isinstance(block, dict)
+                and block.get("type") == "text"
+                and not block.get("text")
+            )
+        ]
+        if non_empty != content:
+            msg = {**msg, "content": non_empty}
+        filtered.append(msg)
+    return filtered

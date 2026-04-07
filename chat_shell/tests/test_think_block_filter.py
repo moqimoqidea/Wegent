@@ -386,6 +386,78 @@ class TestStripForeignReasoningBlocks:
         # reasoning block passed through unchanged
         assert result[0]["content"][0] == {"type": "reasoning", "reasoning": ""}
 
+    def test_anthropic_same_provider_drops_reasoning_without_signature(self):
+        """Reasoning blocks from Kimi (anthropic protocol, no signature) are dropped for Claude."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "reasoning", "reasoning": "kimi thought"},
+                    {"type": "text", "text": "answer"},
+                ],
+                "model_info": {"provider": "anthropic", "model": "moonshot-kimi-k2.5"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        # Reasoning without signature is dropped; only text remains
+        assert result[0]["content"] == [{"type": "text", "text": "answer"}]
+
+    def test_anthropic_mixed_signature_and_no_signature(self):
+        """Only reasoning blocks with signature are kept for Claude target."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "claude thought",
+                        "extras": {"signature": "sig1"},
+                    },
+                    {"type": "text", "text": "A1"},
+                ],
+                "model_info": {"provider": "anthropic", "model": "claude-sonnet"},
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "reasoning", "reasoning": "kimi thought"},
+                    {"type": "text", "text": "A2"},
+                ],
+                "model_info": {"provider": "anthropic", "model": "moonshot-kimi-k2.5"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        # Claude message: thinking denormalized with signature
+        assert result[0]["content"][0] == {
+            "type": "thinking",
+            "thinking": "claude thought",
+            "signature": "sig1",
+        }
+        # Kimi message: reasoning dropped (no signature), only text kept
+        assert result[1]["content"] == [{"type": "text", "text": "A2"}]
+
+    def test_kimi_target_filters_empty_text_blocks(self):
+        """Empty text blocks are filtered when targeting Kimi models."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "reasoning", "reasoning": "thought"},
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5"},
+            },
+        ]
+        # Cross-provider strip leaves empty text fallback
+        result = strip_foreign_reasoning_blocks(
+            messages, "anthropic", target_model_id="moonshot-kimi-k2.5"
+        )
+        # Empty text block should be filtered out for Kimi
+        content = result[0]["content"]
+        assert not any(
+            isinstance(b, dict) and b.get("type") == "text" and not b.get("text")
+            for b in content
+        )
+
 
 class TestInferProvider:
     """Tests for _infer_provider heuristic."""

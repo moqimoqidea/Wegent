@@ -176,6 +176,7 @@ def _convert_validated_messages(
     *,
     context: str,
     target_provider: str = "",
+    target_model_id: str = "",
 ) -> list[BaseMessage]:
     """Validate canonical message linkage, then convert to LangChain messages.
 
@@ -187,7 +188,9 @@ def _convert_validated_messages(
             strip_foreign_reasoning_blocks,
         )
 
-        messages = strip_foreign_reasoning_blocks(messages, target_provider)
+        messages = strip_foreign_reasoning_blocks(
+            messages, target_provider, target_model_id=target_model_id
+        )
     _validate_tool_message_sequence(messages, context=context)
     return convert_to_messages(messages)
 
@@ -444,6 +447,7 @@ class LangGraphAgentBuilder:
             messages,
             context="agent execution input messages",
             target_provider=self._provider,
+            target_model_id=self._model_id,
         )
         exec_config = {"configurable": config} if config else None
 
@@ -921,6 +925,7 @@ class LangGraphAgentBuilder:
             messages,
             context="stream_execute input messages",
             target_provider=self._provider,
+            target_model_id=self._model_id,
         )
 
         exec_config = {"configurable": config} if config else None
@@ -978,6 +983,7 @@ class LangGraphAgentBuilder:
             messages,
             context="stream_tokens input messages",
             target_provider=self._provider,
+            target_model_id=self._model_id,
         )
         add_span_event(
             "convert_to_messages_completed", {"lc_message_count": len(lc_messages)}
