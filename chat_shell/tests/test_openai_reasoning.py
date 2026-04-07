@@ -178,6 +178,43 @@ class TestGetRequestPayload:
         assert assistant_msg["role"] == "assistant"
         assert "reasoning_content" not in assistant_msg
 
+    def test_injects_canonical_reasoning_blocks_into_assistant_messages(self, model):
+        """Canonical reasoning blocks are re-injected as reasoning_content."""
+        messages = [
+            HumanMessage(content="hello"),
+            AIMessage(
+                content=[
+                    {"type": "reasoning", "reasoning": "Thinking about this..."},
+                    {"type": "text", "text": "Let me help"},
+                ]
+            ),
+        ]
+
+        payload = model._get_request_payload(messages)
+
+        assistant_msg = payload["messages"][1]
+        assert assistant_msg["role"] == "assistant"
+        assert assistant_msg["reasoning_content"] == "Thinking about this..."
+        assert assistant_msg["content"] == "Let me help"
+
+    def test_reasoning_only_canonical_blocks_become_empty_content_string(self, model):
+        """Reasoning-only canonical messages keep reasoning_content and use empty text content."""
+        messages = [
+            HumanMessage(content="hello"),
+            AIMessage(
+                content=[
+                    {"type": "reasoning", "reasoning": "Thinking about this..."},
+                ]
+            ),
+        ]
+
+        payload = model._get_request_payload(messages)
+
+        assistant_msg = payload["messages"][1]
+        assert assistant_msg["role"] == "assistant"
+        assert assistant_msg["reasoning_content"] == "Thinking about this..."
+        assert assistant_msg["content"] == ""
+
     def test_preserves_other_payload_fields(self, model):
         """Payload's model, temperature, etc. remain unchanged."""
         messages = [HumanMessage(content="test")]

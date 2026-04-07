@@ -104,32 +104,40 @@ class ChatOpenAIWithReasoning(ChatOpenAI):
                     continue
 
                 # Path 2: Canonical format — reasoning blocks in content list
-                api_content = api_msg.get("content")
-                if not isinstance(api_content, list):
+                lc_content = lc_msg.content
+                if not isinstance(lc_content, list):
                     continue
 
                 reasoning_texts: list[str] = []
-                non_reasoning: list = []
-                for block in api_content:
+                for block in lc_content:
                     if isinstance(block, dict) and block.get("type") == "reasoning":
                         text = block.get("reasoning", "")
                         if text:
                             reasoning_texts.append(text)
-                    else:
-                        non_reasoning.append(block)
 
                 if reasoning_texts:
                     api_msg["reasoning_content"] = "\n".join(reasoning_texts)
-                    # Replace content with non-reasoning blocks only;
-                    # DeepSeek/Kimi APIs reject unknown block types.
-                    if (
-                        len(non_reasoning) == 1
-                        and non_reasoning[0].get("type") == "text"
-                    ):
-                        api_msg["content"] = non_reasoning[0]["text"]
-                    elif non_reasoning:
-                        api_msg["content"] = non_reasoning
-                    else:
-                        api_msg["content"] = ""
+                    api_content = api_msg.get("content")
+                    if isinstance(api_content, list):
+                        non_reasoning = [
+                            block
+                            for block in api_content
+                            if not (
+                                isinstance(block, dict)
+                                and block.get("type") == "reasoning"
+                            )
+                        ]
+                        # Replace content with non-reasoning blocks only;
+                        # DeepSeek/Kimi APIs reject unknown block types.
+                        if (
+                            len(non_reasoning) == 1
+                            and isinstance(non_reasoning[0], dict)
+                            and non_reasoning[0].get("type") == "text"
+                        ):
+                            api_msg["content"] = non_reasoning[0]["text"]
+                        elif non_reasoning:
+                            api_msg["content"] = non_reasoning
+                        else:
+                            api_msg["content"] = ""
 
         return payload

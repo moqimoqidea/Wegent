@@ -250,8 +250,18 @@ def _normalize_content_blocks(blocks: list) -> list:
                         reasoning_block["extras"] = extras
                     result.append(reasoning_block)
             if not block.get("summary"):
-                # Empty summary: keep a reasoning block without text
-                result.append({"type": "reasoning", "reasoning": ""})
+                # Empty summary: preserve non-summary metadata (e.g. id,
+                # encrypted_content) so same-provider round-trips keep
+                # reasoning continuity data.
+                reasoning_block = {"type": "reasoning", "reasoning": ""}
+                extras = {
+                    k: v
+                    for k, v in block.items()
+                    if k not in ("type", "summary", "reasoning")
+                }
+                if extras:
+                    reasoning_block["extras"] = extras
+                result.append(reasoning_block)
         else:
             normalized = _normalize_content_block(block)
             if normalized is not None:
