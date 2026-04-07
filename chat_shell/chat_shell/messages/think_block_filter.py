@@ -21,6 +21,15 @@ _REASONING_TYPE = "reasoning"
 _LEGACY_ANTHROPIC_TYPE = "thinking"
 
 
+def _is_claude_model(model_id: str) -> bool:
+    """Check if a model ID represents a real Anthropic Claude model.
+
+    Non-Claude models (Minimax, GLM, Kimi) may use the Anthropic protocol
+    but produce invalid signatures that the Claude API rejects.
+    """
+    return model_id.lower().startswith("claude")
+
+
 def _infer_provider(msg: dict[str, Any]) -> str | None:
     """Heuristically infer the originating provider from a message dict.
 
@@ -328,10 +337,32 @@ def strip_foreign_reasoning_blocks(
         # Same provider: keep everything (denormalize to native format)
         if source_provider == target_provider:
             if target_provider == "anthropic" and isinstance(content, list):
-                denormalized = copy.deepcopy(msg)
-                denormalized["content"] = _denormalize_for_anthropic(content)
-                denormalized["response_metadata"] = {"model_provider": "anthropic"}
-                result.append(denormalized)
+                source_model = (
+                    model_info.get("model", "")
+                    if isinstance(model_info, dict)
+                    else ""
+                )
+                # Non-Claude models using the Anthropic protocol (Minimax,
+                # Kimi, GLM) may produce fake signatures that the Claude API
+                # rejects.  When we know the source model, only denormalize
+                # if it is actually Claude.  Legacy messages without
+                # model_info are assumed to be real Claude (backward compat).
+                has_model_info = isinstance(model_info, dict)
+                is_real_claude = not has_model_info or _is_claude_model(
+                    source_model
+                )
+                if is_real_claude:
+                    denormalized = copy.deepcopy(msg)
+                    denormalized["content"] = _denormalize_for_anthropic(content)
+                    denormalized["response_metadata"] = {
+                        "model_provider": "anthropic"
+                    }
+                    result.append(denormalized)
+                else:
+                    # Non-Claude model — strip reasoning blocks
+                    stripped = copy.deepcopy(msg)
+                    stripped["content"] = _strip_reasoning_from_content(content)
+                    result.append(stripped)
             elif (
                 target_provider == "openai"
                 and target_uses_responses

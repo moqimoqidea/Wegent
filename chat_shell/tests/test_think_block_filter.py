@@ -442,6 +442,57 @@ class TestStripForeignReasoningBlocks:
         # Kimi message: reasoning dropped (no signature), only text kept
         assert result[1]["content"] == [{"type": "text", "text": "A2"}]
 
+    def test_non_claude_anthropic_protocol_fake_signature_stripped(self):
+        """Minimax-style fake signature is stripped when targeting Claude.
+
+        Non-Claude models using the Anthropic protocol may produce hex-hash
+        signatures that the Claude API rejects as invalid.
+        """
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "minimax thinking",
+                        "extras": {
+                            "index": 0,
+                            "signature": "080de92e77be80ab453d135b3971d802",
+                        },
+                    },
+                    {"type": "text", "text": "answer"},
+                ],
+                "model_info": {"provider": "anthropic", "model": "minimax-m2.7"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        # Reasoning with fake signature must be stripped, not denormalized
+        assert result[0]["content"] == [{"type": "text", "text": "answer"}]
+        # No response_metadata (not denormalized as Claude)
+        assert "response_metadata" not in result[0]
+
+    def test_legacy_anthropic_no_model_info_denormalized(self):
+        """Legacy messages without model_info are assumed Claude (backward compat)."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "legacy thought",
+                        "extras": {"signature": "EpwCCk...real_sig"},
+                    },
+                    {"type": "text", "text": "answer"},
+                ],
+                # No model_info — legacy data
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "anthropic")
+        # Legacy messages should be denormalized (assumed Claude)
+        assert result[0]["content"][0]["type"] == "thinking"
+        assert result[0]["content"][0]["signature"] == "EpwCCk...real_sig"
+        assert "response_metadata" in result[0]
+
     def test_kimi_target_filters_empty_text_blocks(self):
         """Empty text blocks are filtered when targeting Kimi models."""
         messages = [

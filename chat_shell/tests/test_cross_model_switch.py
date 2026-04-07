@@ -283,3 +283,41 @@ class TestCrossModelSwitch:
         assert rb.get("encrypted_content") == "gAAAAABp1LL2_encrypted_data_here"
         # extras should not be present
         assert "extras" not in rb
+
+    def test_minimax_fake_signature_to_claude(self):
+        """Minimax message with fake signature does not break Claude target.
+
+        Simulates the exact scenario from task 23: Minimax (provider=anthropic)
+        produces a hex-hash signature, then conversation switches to Claude.
+        The fake signature must be stripped, not denormalized.
+        """
+        history = [
+            {"role": "user", "content": "Draw something"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "minimax thinking",
+                        "extras": {
+                            "index": 0,
+                            "signature": "080de92e77be80ab453d135b3971d802",
+                        },
+                    },
+                    {"type": "text", "text": "Here is a diagram"},
+                ],
+                "model_info": {"provider": "anthropic", "model": "minimax-m2.7"},
+            },
+            {"role": "user", "content": "What do you think?"},
+        ]
+        # Target Claude — should not raise
+        lc_messages = _convert_validated_messages(
+            history, context="test", target_provider="anthropic"
+        )
+        assert len(lc_messages) == 3
+        # Minimax reasoning should be stripped
+        assistant_msg = lc_messages[1]
+        if isinstance(assistant_msg.content, list):
+            for block in assistant_msg.content:
+                if isinstance(block, dict):
+                    assert block.get("type") != "thinking"
