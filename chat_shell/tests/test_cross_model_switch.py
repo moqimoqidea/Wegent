@@ -209,3 +209,76 @@ class TestCrossModelSwitch:
             history, context="test", target_provider="openai"
         )
         assert len(lc_messages) == 4  # user + 3 from chain
+
+    def test_openai_responses_to_openai_responses_round_trip(self):
+        """GPT-5.4 Responses API reasoning blocks survive a same-provider round-trip.
+
+        Simulates: GPT-5.4 response with reasoning → serialize → store →
+        load → filter (same provider) → convert. The reasoning blocks must
+        be reconstructed to the original Responses API format with top-level
+        ``id``, ``summary`` structure, and ``encrypted_content``.
+        """
+        # Step 1: Simulate GPT-5.4 response with Responses API reasoning
+        oai_msg = AIMessage(
+            content=[
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        {"type": "summary_text", "text": "I need to think about this."}
+                    ],
+                    "id": "rs_00a8759da22afc8f0069d4b2f63cd88195a5b413e3d1051685",
+                    "encrypted_content": "gAAAAABp1LL2_encrypted_data_here",
+                },
+                {
+                    "id": "msg_00a8759da22afc8f0069d4b2f88cc4819595f7e18d7ec92a63",
+                    "type": "text",
+                    "text": "The answer is 42.",
+                    "index": 1,
+                },
+            ]
+        )
+
+        # Step 2: Serialize (this will explode the reasoning block)
+        chain = _serialize_messages_chain(
+            [oai_msg], provider="openai", model_id="gpt-5.4"
+        )
+
+        # Verify exploded format in storage
+        stored_content = chain[0]["content"]
+        assert stored_content[0]["type"] == "reasoning"
+        assert "extras" in stored_content[0]
+        assert stored_content[0]["extras"]["id"] == (
+            "rs_00a8759da22afc8f0069d4b2f63cd88195a5b413e3d1051685"
+        )
+
+        # Step 3: Load and convert for same provider (GPT-5.4 → GPT-5.4)
+        history = [{"role": "user", "content": "What is 6*7?"}] + chain
+        lc_messages = _convert_validated_messages(
+            history, context="test", target_provider="openai"
+        )
+
+        # Step 4: Verify the reasoning block is reconstructed
+        assistant_msg = lc_messages[1]
+        assert isinstance(assistant_msg.content, list)
+
+        reasoning_blocks = [
+            b
+            for b in assistant_msg.content
+            if isinstance(b, dict) and b.get("type") == "reasoning"
+        ]
+        assert len(reasoning_blocks) >= 1
+
+        rb = reasoning_blocks[0]
+        # Top-level id must be present (not buried in extras)
+        assert rb.get("id") == (
+            "rs_00a8759da22afc8f0069d4b2f63cd88195a5b413e3d1051685"
+        )
+        # Summary structure must be rebuilt
+        assert "summary" in rb
+        assert rb["summary"] == [
+            {"type": "summary_text", "text": "I need to think about this."}
+        ]
+        # encrypted_content at top level
+        assert rb.get("encrypted_content") == "gAAAAABp1LL2_encrypted_data_here"
+        # extras should not be present
+        assert "extras" not in rb

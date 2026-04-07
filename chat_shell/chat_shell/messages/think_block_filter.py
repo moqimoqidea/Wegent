@@ -104,6 +104,52 @@ def _denormalize_for_anthropic(content: list) -> list:
     return result
 
 
+def _denormalize_for_openai_responses(content: list) -> list:
+    """Convert canonical reasoning blocks back to OpenAI Responses API format.
+
+    Transforms exploded canonical blocks::
+
+        {"type": "reasoning", "reasoning": "text",
+         "extras": {"id": "rs_...", "encrypted_content": "gAAAA...", ...}}
+
+    back to the original Responses API structure::
+
+        {"type": "reasoning", "id": "rs_...",
+         "summary": [{"type": "summary_text", "text": "text"}],
+         "encrypted_content": "gAAAA..."}
+
+    Blocks without ``extras.id`` or ``extras.encrypted_content`` (i.e. not
+    originating from the Responses API) are passed through unchanged.
+    """
+    result: list = []
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != _REASONING_TYPE:
+            result.append(block)
+            continue
+
+        extras = block.get("extras")
+        if not isinstance(extras, dict) or (
+            "id" not in extras and "encrypted_content" not in extras
+        ):
+            # Not an exploded Responses API reasoning block
+            result.append(block)
+            continue
+
+        # Reconstruct the original Responses API format
+        rebuilt: dict[str, Any] = {"type": _REASONING_TYPE}
+        if "id" in extras:
+            rebuilt["id"] = extras["id"]
+
+        reasoning_text = block.get("reasoning", "")
+        rebuilt["summary"] = [{"type": "summary_text", "text": reasoning_text}]
+
+        if "encrypted_content" in extras:
+            rebuilt["encrypted_content"] = extras["encrypted_content"]
+
+        result.append(rebuilt)
+    return result
+
+
 def strip_foreign_reasoning_blocks(
     messages: list[dict[str, Any]],
     target_provider: str,
@@ -148,7 +194,7 @@ def strip_foreign_reasoning_blocks(
 
         content = msg.get("content")
 
-        # Same provider: keep everything (denormalize for Anthropic)
+        # Same provider: keep everything (denormalize to native format)
         if source_provider == target_provider:
             if target_provider == "anthropic" and isinstance(content, list):
                 denormalized = copy.deepcopy(msg)
@@ -158,6 +204,10 @@ def strip_foreign_reasoning_blocks(
                 # LangChain Anthropic's _format_messages checks this to keep
                 # thinking blocks from the same provider.
                 denormalized["response_metadata"] = {"model_provider": "anthropic"}
+                result.append(denormalized)
+            elif target_provider == "openai" and isinstance(content, list):
+                denormalized = copy.deepcopy(msg)
+                denormalized["content"] = _denormalize_for_openai_responses(content)
                 result.append(denormalized)
             else:
                 result.append(msg)

@@ -231,7 +231,7 @@ class TestStripForeignReasoningBlocks:
         assert "response_metadata" not in messages[0]
 
     def test_non_anthropic_same_provider_passes_through(self):
-        """Non-Anthropic same-provider messages are not denormalized."""
+        """Non-Anthropic same-provider messages without Responses API extras are not denormalized."""
         messages = [
             {
                 "role": "assistant",
@@ -243,9 +243,119 @@ class TestStripForeignReasoningBlocks:
             },
         ]
         result = strip_foreign_reasoning_blocks(messages, "openai")
-        # reasoning blocks preserved as-is (not converted to thinking)
+        # Plain reasoning blocks (no extras.id) pass through unchanged
         assert result[0]["content"][0]["type"] == "reasoning"
+        assert result[0]["content"][0].get("reasoning") == "thinking"
         assert "additional_kwargs" not in result[0]
+
+    def test_openai_same_provider_denormalizes_reasoning(self):
+        """OpenAI same-provider reasoning blocks with Responses API extras are reconstructed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "I considered the options...",
+                        "extras": {
+                            "id": "rs_abc123",
+                            "encrypted_content": "gAAAA_encrypted_data",
+                            "index": 0,
+                        },
+                    },
+                    {
+                        "id": "msg_xyz789",
+                        "type": "text",
+                        "text": "Final answer",
+                        "index": 1,
+                    },
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5.4"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "openai")
+        reasoning_block = result[0]["content"][0]
+        assert reasoning_block == {
+            "type": "reasoning",
+            "id": "rs_abc123",
+            "summary": [{"type": "summary_text", "text": "I considered the options..."}],
+            "encrypted_content": "gAAAA_encrypted_data",
+        }
+        # Text block unchanged
+        assert result[0]["content"][1]["type"] == "text"
+
+    def test_openai_same_provider_without_extras_id_passes_through(self):
+        """OpenAI reasoning blocks without extras.id/encrypted_content are not reconstructed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "reasoning", "reasoning": "plain thinking"},
+                    {"type": "text", "text": "answer"},
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "openai")
+        assert result[0]["content"][0] == {
+            "type": "reasoning",
+            "reasoning": "plain thinking",
+        }
+
+    def test_openai_same_provider_does_not_mutate_original(self):
+        """OpenAI denormalization creates a deep copy, original is untouched."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "thought",
+                        "extras": {"id": "rs_1", "encrypted_content": "enc"},
+                    },
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5"},
+            },
+        ]
+        original_content = list(messages[0]["content"])
+        strip_foreign_reasoning_blocks(messages, "openai")
+        assert messages[0]["content"] == original_content
+
+    def test_openai_same_provider_multiple_reasoning_blocks(self):
+        """Multiple exploded reasoning blocks are each reconstructed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "reasoning": "Step 1",
+                        "extras": {"id": "rs_1", "encrypted_content": "enc1"},
+                    },
+                    {
+                        "type": "reasoning",
+                        "reasoning": "Step 2",
+                        "extras": {"id": "rs_1", "encrypted_content": "enc1"},
+                    },
+                    {"type": "text", "text": "answer"},
+                ],
+                "model_info": {"provider": "openai", "model": "gpt-5"},
+            },
+        ]
+        result = strip_foreign_reasoning_blocks(messages, "openai")
+        assert result[0]["content"][0] == {
+            "type": "reasoning",
+            "id": "rs_1",
+            "summary": [{"type": "summary_text", "text": "Step 1"}],
+            "encrypted_content": "enc1",
+        }
+        assert result[0]["content"][1] == {
+            "type": "reasoning",
+            "id": "rs_1",
+            "summary": [{"type": "summary_text", "text": "Step 2"}],
+            "encrypted_content": "enc1",
+        }
+        assert result[0]["content"][2] == {"type": "text", "text": "answer"}
 
 
 class TestInferProvider:
