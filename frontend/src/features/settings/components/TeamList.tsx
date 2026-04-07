@@ -24,6 +24,7 @@ import { CheckRunningTasksResponse } from '@/apis/common'
 import { fetchBotsList } from '../services/bots'
 import TeamEditDialog from './TeamEditDialog'
 import BotList from './BotList'
+import { ForceDeleteTaskSummary } from './ForceDeleteTaskSummary'
 import UnifiedAddButton from '@/components/common/UnifiedAddButton'
 import TeamShareModal from './TeamShareModal'
 import TeamCreationWizard from './wizard/TeamCreationWizard'
@@ -763,36 +764,23 @@ export default function TeamList({
           <DialogHeader>
             <DialogTitle>{t('teams.force_delete_confirm_title')}</DialogTitle>
             <DialogDescription>
-              <div className="space-y-3">
-                <p>
-                  {t('teams.force_delete_confirm_message', {
-                    count: runningTasksInfo?.running_tasks_count || 0,
-                  })}
-                </p>
-                {runningTasksInfo && runningTasksInfo.running_tasks.length > 0 && (
-                  <div className="bg-muted p-3 rounded-md">
-                    <p className="font-medium text-sm mb-2">{t('teams.running_tasks_list')}</p>
-                    <ul className="text-sm space-y-1">
-                      {runningTasksInfo.running_tasks.slice(0, 5).map(task => (
-                        <li key={task.task_id} className="text-text-muted">
-                          • {task.task_title || task.task_name} ({task.status})
-                        </li>
-                      ))}
-                      {runningTasksInfo.running_tasks.length > 5 && (
-                        <li className="text-text-muted">
-                          ...{' '}
-                          {t('teams.and_more_tasks', {
-                            count: runningTasksInfo.running_tasks.length - 5,
-                          })}
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-                <p className="text-error text-sm">{t('teams.force_delete_warning')}</p>
-              </div>
+              {t('teams.force_delete_confirm_message', {
+                count: runningTasksInfo?.running_tasks_count || 0,
+              })}
             </DialogDescription>
           </DialogHeader>
+          <ForceDeleteTaskSummary
+            runningTasks={runningTasksInfo?.running_tasks || []}
+            runningTasksTitle={t('teams.running_tasks_list')}
+            warning={t('teams.force_delete_warning')}
+            andMoreLabel={
+              runningTasksInfo && runningTasksInfo.running_tasks.length > 5
+                ? `... ${t('teams.and_more_tasks', {
+                    count: runningTasksInfo.running_tasks.length - 5,
+                  })}`
+                : undefined
+            }
+          />
           <DialogFooter>
             <Button variant="secondary" onClick={handleCancelDelete} disabled={isDeleting}>
               {t('common.cancel')}
