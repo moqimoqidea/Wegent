@@ -68,6 +68,9 @@ class MessageCreate(BaseModel):
         None, description="Tool calls for assistant messages"
     )
     metadata: Optional[dict] = Field(None, description="Additional metadata")
+    model_info: Optional[dict] = Field(
+        None, description="Provider/model metadata for think-block filtering"
+    )
 
 
 class MessageUpdate(BaseModel):
@@ -299,6 +302,7 @@ def subtask_to_messages(
             content=content,
             created_at=created_at,
             loaded_skills=loaded_skills,
+            model_info=result.get("model_info"),
         )
     ]
 
@@ -829,6 +833,27 @@ async def get_chat_history(
     return HistoryResponse(session_id=session_id, messages=messages)
 
 
+def _populate_subtask_content(subtask: Subtask, message: MessageCreate) -> None:
+    """Set prompt or result on a Subtask based on the message role."""
+    if subtask.role == SubtaskRole.USER:
+        subtask.prompt = (
+            message.content
+            if isinstance(message.content, str)
+            else json.dumps(message.content, ensure_ascii=False)
+        )
+    else:
+        result: dict = {
+            "value": (
+                message.content
+                if isinstance(message.content, str)
+                else json.dumps(message.content, ensure_ascii=False)
+            )
+        }
+        if message.model_info:
+            result["model_info"] = message.model_info
+        subtask.result = result
+
+
 @router.post("/history/{session_id}/messages", response_model=MessageIdResponse)
 async def append_message(
     session_id: str,
@@ -884,20 +909,7 @@ async def append_message(
     )
 
     # Set content based on role
-    if role == SubtaskRole.USER:
-        subtask.prompt = (
-            message.content
-            if isinstance(message.content, str)
-            else json.dumps(message.content, ensure_ascii=False)
-        )
-    else:
-        subtask.result = {
-            "value": (
-                message.content
-                if isinstance(message.content, str)
-                else json.dumps(message.content, ensure_ascii=False)
-            )
-        }
+    _populate_subtask_content(subtask, message)
 
     db.add(subtask)
     db.commit()
@@ -964,20 +976,7 @@ async def append_messages_batch(
             status=SubtaskStatus.COMPLETED,
         )
 
-        if role == SubtaskRole.USER:
-            subtask.prompt = (
-                message.content
-                if isinstance(message.content, str)
-                else json.dumps(message.content, ensure_ascii=False)
-            )
-        else:
-            subtask.result = {
-                "value": (
-                    message.content
-                    if isinstance(message.content, str)
-                    else json.dumps(message.content, ensure_ascii=False)
-                )
-            }
+        _populate_subtask_content(subtask, message)
 
         db.add(subtask)
         db.flush()  # Get ID without committing

@@ -302,6 +302,7 @@ class LangChainModelFactory:
         # with model_info, enabling cross-model think-block filtering.
         model._wegent_provider = provider  # type: ignore[attr-defined]
         model._wegent_model_id = cfg["model_id"]  # type: ignore[attr-defined]
+        model._wegent_api_format = cfg.get("api_format") or ""  # type: ignore[attr-defined]
 
         return model
 

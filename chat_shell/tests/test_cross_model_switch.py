@@ -254,7 +254,8 @@ class TestCrossModelSwitch:
         # Step 3: Load and convert for same provider (GPT-5.4 → GPT-5.4)
         history = [{"role": "user", "content": "What is 6*7?"}] + chain
         lc_messages = _convert_validated_messages(
-            history, context="test", target_provider="openai"
+            history, context="test", target_provider="openai",
+            target_api_format="responses",
         )
 
         # Step 4: Verify the reasoning block is reconstructed

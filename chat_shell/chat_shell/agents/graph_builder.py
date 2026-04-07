@@ -177,6 +177,7 @@ def _convert_validated_messages(
     context: str,
     target_provider: str = "",
     target_model_id: str = "",
+    target_api_format: str = "",
 ) -> list[BaseMessage]:
     """Validate canonical message linkage, then convert to LangChain messages.
 
@@ -189,7 +190,10 @@ def _convert_validated_messages(
         )
 
         messages = strip_foreign_reasoning_blocks(
-            messages, target_provider, target_model_id=target_model_id
+            messages,
+            target_provider,
+            target_model_id=target_model_id,
+            target_api_format=target_api_format,
         )
     _validate_tool_message_sequence(messages, context=context)
     return convert_to_messages(messages)
@@ -416,6 +420,7 @@ class LangGraphAgentBuilder:
         # Provider metadata set by LangChainModelFactory for think-block handling
         self._provider: str = getattr(llm, "_wegent_provider", "unknown")
         self._model_id: str = getattr(llm, "_wegent_model_id", "")
+        self._api_format: str = getattr(llm, "_wegent_api_format", "")
 
         # Get all LangChain tools from registry
         self.tools: list[BaseTool] = []
@@ -448,6 +453,7 @@ class LangGraphAgentBuilder:
             context="agent execution input messages",
             target_provider=self._provider,
             target_model_id=self._model_id,
+            target_api_format=self._api_format,
         )
         exec_config = {"configurable": config} if config else None
 
@@ -926,6 +932,7 @@ class LangGraphAgentBuilder:
             context="stream_execute input messages",
             target_provider=self._provider,
             target_model_id=self._model_id,
+            target_api_format=self._api_format,
         )
 
         exec_config = {"configurable": config} if config else None
@@ -984,6 +991,7 @@ class LangGraphAgentBuilder:
             context="stream_tokens input messages",
             target_provider=self._provider,
             target_model_id=self._model_id,
+            target_api_format=self._api_format,
         )
         add_span_event(
             "convert_to_messages_completed", {"lc_message_count": len(lc_messages)}

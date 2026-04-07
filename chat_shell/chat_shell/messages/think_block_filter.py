@@ -41,13 +41,16 @@ def _infer_provider(msg: dict[str, Any]) -> str | None:
             if block_type == _REASONING_TYPE and "summary" in block:
                 # OpenAI Responses API format (pre-normalization legacy)
                 return "openai"
-            if (
-                block_type == _REASONING_TYPE
-                and isinstance(block.get("extras"), dict)
-                and block["extras"].get("signature")
+            if block_type == _REASONING_TYPE and isinstance(
+                block.get("extras"), dict
             ):
-                # Canonical reasoning with Anthropic signature
-                return "anthropic"
+                extras = block["extras"]
+                if extras.get("signature"):
+                    # Canonical reasoning with Anthropic signature
+                    return "anthropic"
+                if extras.get("id") or extras.get("encrypted_content"):
+                    # Canonical OpenAI Responses reasoning
+                    return "openai"
 
     # DeepSeek/Kimi: reasoning_content in additional_kwargs
     additional_kwargs = msg.get("additional_kwargs")
@@ -272,6 +275,7 @@ def strip_foreign_reasoning_blocks(
     messages: list[dict[str, Any]],
     target_provider: str,
     target_model_id: str = "",
+    target_api_format: str = "",
 ) -> list[dict[str, Any]]:
     """Remove reasoning blocks from messages produced by a different provider.
 
@@ -296,11 +300,16 @@ def strip_foreign_reasoning_blocks(
         target_model_id: The model ID of the current request
             (e.g. ``"claude-sonnet-4-6"``, ``"moonshot-kimi-k2.5"``).
             Used for model-specific post-processing.
+        target_api_format: The API format of the target model
+            (e.g. ``"responses"`` for OpenAI Responses API).
+            When empty, Chat Completions format is assumed for OpenAI.
 
     Returns:
         A new list of message dicts with foreign reasoning blocks removed.
         Original dicts are not mutated.
     """
+    target_uses_responses = target_api_format == "responses"
+
     result: list[dict[str, Any]] = []
     for msg in messages:
         if msg.get("role") != "assistant":
@@ -323,7 +332,15 @@ def strip_foreign_reasoning_blocks(
                 denormalized["content"] = _denormalize_for_anthropic(content)
                 denormalized["response_metadata"] = {"model_provider": "anthropic"}
                 result.append(denormalized)
-            elif target_provider == "openai" and isinstance(content, list):
+            elif (
+                target_provider == "openai"
+                and target_uses_responses
+                and isinstance(content, list)
+            ):
+                # Only denormalize to Responses API format when the target
+                # actually uses the Responses API.  Chat Completions reasoning
+                # models (DeepSeek/Kimi) handle canonical blocks via
+                # ChatOpenAIWithReasoning, so they need no denormalization.
                 denormalized = copy.deepcopy(msg)
                 denormalized["content"] = _denormalize_for_openai_responses(content)
                 result.append(denormalized)

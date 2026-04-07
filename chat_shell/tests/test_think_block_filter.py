@@ -273,7 +273,9 @@ class TestStripForeignReasoningBlocks:
                 "model_info": {"provider": "openai", "model": "gpt-5.4"},
             },
         ]
-        result = strip_foreign_reasoning_blocks(messages, "openai")
+        result = strip_foreign_reasoning_blocks(
+            messages, "openai", target_api_format="responses"
+        )
         reasoning_block = result[0]["content"][0]
         assert reasoning_block == {
             "type": "reasoning",
@@ -342,7 +344,9 @@ class TestStripForeignReasoningBlocks:
                 "model_info": {"provider": "openai", "model": "gpt-5"},
             },
         ]
-        result = strip_foreign_reasoning_blocks(messages, "openai")
+        result = strip_foreign_reasoning_blocks(
+            messages, "openai", target_api_format="responses"
+        )
         assert result[0]["content"][0] == {
             "type": "reasoning",
             "id": "rs_1",
@@ -378,7 +382,9 @@ class TestStripForeignReasoningBlocks:
                 "model_info": {"provider": "openai", "model": "gpt-5.4"},
             },
         ]
-        result = strip_foreign_reasoning_blocks(messages, "openai")
+        result = strip_foreign_reasoning_blocks(
+            messages, "openai", target_api_format="responses"
+        )
         text_block = result[0]["content"][1]
         # id should be stripped to prevent orphaned message reference
         assert "id" not in text_block

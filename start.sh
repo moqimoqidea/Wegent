@@ -571,9 +571,10 @@ patch_backend_service_urls() {
         local db_url
         db_url=$(grep "^DATABASE_URL=" "$backend_env" | cut -d'=' -f2-)
         if [ -n "$db_url" ]; then
-            # Replace port in @host:PORT/ pattern (e.g., @localhost:3306/ -> @localhost:23306/)
+            # Replace port in @host:PORT pattern (supports optional trailing slash)
+            # e.g., @localhost:3306/db -> @localhost:23306/db
             local patched_db_url
-            patched_db_url=$(echo "$db_url" | sed -E "s/(@[^:@]+):[0-9]+\//\1:$MYSQL_PORT\//")
+            patched_db_url=$(echo "$db_url" | sed -E "s#(@[^/:]+):[0-9]+(/|$)#\1:$MYSQL_PORT\2#")
             export DATABASE_URL="$patched_db_url"
             echo -e "  ${GREEN}✓${NC} DATABASE_URL patched to use MYSQL_PORT=$MYSQL_PORT"
         fi
@@ -584,9 +585,10 @@ patch_backend_service_urls() {
         local redis_url
         redis_url=$(grep "^REDIS_URL=" "$backend_env" | cut -d'=' -f2-)
         if [ -n "$redis_url" ]; then
-            # Replace port in ://host:PORT/ pattern (e.g., ://127.0.0.1:6379/ -> ://127.0.0.1:26379/)
+            # Replace port in host:PORT pattern (supports optional credentials and trailing slash)
+            # e.g., redis://127.0.0.1:6379/0 or redis://:pwd@127.0.0.1:6379/0
             local patched_redis_url
-            patched_redis_url=$(echo "$redis_url" | sed -E "s|(//[^:@/]+):[0-9]+/|\1:$REDIS_PORT/|")
+            patched_redis_url=$(echo "$redis_url" | sed -E "s#(//([^/@]+@)?[^/:]+):[0-9]+(/|$)#\1:$REDIS_PORT\3#")
             export REDIS_URL="$patched_redis_url"
             echo -e "  ${GREEN}✓${NC} REDIS_URL patched to use REDIS_PORT=$REDIS_PORT"
         fi
