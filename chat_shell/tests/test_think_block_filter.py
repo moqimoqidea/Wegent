@@ -326,7 +326,7 @@ class TestStripForeignReasoningBlocks:
         assert messages[0]["content"] == original_content
 
     def test_openai_same_provider_multiple_reasoning_blocks(self):
-        """Multiple exploded reasoning blocks are each reconstructed."""
+        """Multiple exploded reasoning blocks with same id are merged back."""
         messages = [
             {
                 "role": "assistant",
@@ -352,16 +352,13 @@ class TestStripForeignReasoningBlocks:
         assert result[0]["content"][0] == {
             "type": "reasoning",
             "id": "rs_1",
-            "summary": [{"type": "summary_text", "text": "Step 1"}],
+            "summary": [
+                {"type": "summary_text", "text": "Step 1"},
+                {"type": "summary_text", "text": "Step 2"},
+            ],
             "encrypted_content": "enc1",
         }
-        assert result[0]["content"][1] == {
-            "type": "reasoning",
-            "id": "rs_1",
-            "summary": [{"type": "summary_text", "text": "Step 2"}],
-            "encrypted_content": "enc1",
-        }
-        assert result[0]["content"][2] == {"type": "text", "text": "answer"}
+        assert result[0]["content"][1] == {"type": "text", "text": "answer"}
 
     def test_openai_same_provider_orphaned_text_id_stripped(self):
         """When reasoning blocks lack extras (corrupted data), text block ids are stripped.

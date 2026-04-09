@@ -137,6 +137,10 @@ def _denormalize_for_openai_responses(content: list) -> list:
          "summary": [{"type": "summary_text", "text": "text"}],
          "encrypted_content": "gAAAA..."}
 
+    Multiple canonical blocks that share the same ``extras.id`` (produced
+    when the original reasoning block had multiple ``summary_text`` items)
+    are merged back into a single Responses API reasoning item.
+
     Blocks without ``extras.id`` or ``extras.encrypted_content`` (i.e. not
     originating from the Responses API) are passed through unchanged.
 
@@ -147,6 +151,10 @@ def _denormalize_for_openai_responses(content: list) -> list:
     """
     result: list = []
     has_reasoning_id = False
+    # Track the last rebuilt reasoning item by id so that consecutive
+    # canonical blocks that were exploded from the same original reasoning
+    # block are merged back into one item with multiple summary_text entries.
+    _last_reasoning_by_id: dict[str, dict[str, Any]] = {}
 
     for block in content:
         if not isinstance(block, dict) or block.get("type") != _REASONING_TYPE:
@@ -174,19 +182,29 @@ def _denormalize_for_openai_responses(content: list) -> list:
             continue
 
         has_reasoning_id = True
+        reasoning_text = block.get("reasoning", "")
+        block_id = extras.get("id")
+
+        # Merge into an existing rebuilt item if one shares the same id
+        if block_id and block_id in _last_reasoning_by_id:
+            _last_reasoning_by_id[block_id]["summary"].append(
+                {"type": "summary_text", "text": reasoning_text}
+            )
+            continue
 
         # Reconstruct the original Responses API format
         rebuilt: dict[str, Any] = {"type": _REASONING_TYPE}
-        if "id" in extras:
-            rebuilt["id"] = extras["id"]
+        if block_id:
+            rebuilt["id"] = block_id
 
-        reasoning_text = block.get("reasoning", "")
         rebuilt["summary"] = [{"type": "summary_text", "text": reasoning_text}]
 
         if "encrypted_content" in extras:
             rebuilt["encrypted_content"] = extras["encrypted_content"]
 
         result.append(rebuilt)
+        if block_id:
+            _last_reasoning_by_id[block_id] = rebuilt
 
     # If no reasoning block had an id (corrupted/legacy data), strip ``id``
     # from text blocks to prevent orphaned message references that the
