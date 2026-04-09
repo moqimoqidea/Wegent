@@ -17,6 +17,27 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
+from app.services.knowledge.protected_mediation import (
+    ProtectedKnowledgeMediationResponse,
+    protected_knowledge_mediator,
+)
+from app.services.knowledge.retrieval_persistence import (
+    retrieval_persistence_service,
+)
+from app.services.rag.gateway_factory import get_query_gateway
+from app.services.rag.local_gateway import LocalRagGateway
+from app.services.rag.remote_gateway import (
+    RemoteRagGateway,
+    RemoteRagGatewayError,
+    should_fallback_to_local,
+)
+from app.services.rag.retrieval_service import RetrievalService
+from app.services.rag.runtime_resolver import RagRuntimeResolver
+from shared.models import (
+    RemoteListChunkRecord,
+    RemoteListChunksRequest,
+    RemoteListChunksResponse,
+)
 
 # Constants for document reading pagination
 DEFAULT_READ_DOC_LIMIT = 50_000  # Default characters to return
@@ -25,6 +46,7 @@ MAX_READ_DOC_LIMIT = 500_000  # Maximum characters allowed per request
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rag", tags=["internal-rag"])
+runtime_resolver = RagRuntimeResolver()
 
 
 class DirectInjectionRuntimeContext(BaseModel):
@@ -77,6 +99,19 @@ class RetrievePersistenceContext(BaseModel):
     )
 
 
+class RetrieveMediationContext(BaseModel):
+    """Model identity used by Backend-side protected mediation."""
+
+    current_model_name: Optional[str] = Field(
+        default=None,
+        description="Current answering model name preferred for protected mediation",
+    )
+    current_model_namespace: Optional[str] = Field(
+        default="default",
+        description="Namespace of the current answering model",
+    )
+
+
 class InternalRetrieveRequest(BaseModel):
     """Simplified retrieve request for internal use."""
 
@@ -93,6 +128,10 @@ class InternalRetrieveRequest(BaseModel):
         default=None,
         description="Optional list of document IDs to filter. Only chunks from these documents will be returned.",
     )
+    document_names: Optional[list[str]] = Field(
+        default=None,
+        description="Optional exact document names to resolve into document IDs before retrieval.",
+    )
     route_mode: Literal["auto", "direct_injection", "rag_retrieval"] = Field(
         default="auto",
         description="Routing mode: auto decides in Backend, direct_injection forces all-chunks, rag_retrieval forces standard retrieval",
@@ -108,6 +147,10 @@ class InternalRetrieveRequest(BaseModel):
     persistence_context: Optional[RetrievePersistenceContext] = Field(
         default=None,
         description="Optional SubtaskContext persistence metadata handled entirely in Backend",
+    )
+    mediation_context: Optional[RetrieveMediationContext] = Field(
+        default=None,
+        description="Optional model identity used by Backend restricted mediation",
     )
 
     @model_validator(mode="after")
@@ -135,9 +178,99 @@ class InternalRetrieveResponse(BaseModel):
     records: list[RetrieveRecord]
     total: int
     total_estimated_tokens: int = 0
+    message: Optional[str] = None
 
 
-@router.post("/retrieve", response_model=InternalRetrieveResponse)
+def _resolve_document_names(
+    db: Session,
+    knowledge_base_ids: list[int],
+    document_names: list[str],
+) -> list[int]:
+    """Resolve exact document names into document IDs within KB scope."""
+    from app.services.knowledge import KnowledgeService
+
+    return KnowledgeService.resolve_document_ids_by_names(
+        db=db,
+        knowledge_base_ids=knowledge_base_ids,
+        document_names=document_names,
+    )
+
+
+def _resolve_query_gateway(runtime_spec):
+    route_mode = getattr(runtime_spec, "route_mode", "auto")
+    if route_mode == "rag_retrieval":
+        return get_query_gateway()
+    return LocalRagGateway()
+
+
+def _finalize_query_runtime_spec(
+    runtime_spec,
+    db: Session,
+    runtime_context: DirectInjectionRuntimeContext | None = None,
+):
+    if getattr(runtime_spec, "route_mode", "auto") != "auto":
+        return runtime_spec
+    required_attributes = (
+        "query",
+        "knowledge_base_ids",
+        "document_ids",
+        "direct_injection_budget",
+        "model_copy",
+    )
+    if not all(hasattr(runtime_spec, attr) for attr in required_attributes):
+        return runtime_spec
+
+    retrieval_service = RetrievalService()
+    budget = runtime_context or getattr(runtime_spec, "direct_injection_budget", None)
+    resolved_route_mode = retrieval_service.decide_route_mode_for_chat_shell(
+        query=runtime_spec.query,
+        knowledge_base_ids=runtime_spec.knowledge_base_ids,
+        db=db,
+        route_mode=runtime_spec.route_mode,
+        document_ids=runtime_spec.document_ids,
+        metadata_condition=runtime_spec.metadata_condition,
+        context_window=budget.context_window if budget else None,
+        used_context_tokens=budget.used_context_tokens if budget else 0,
+        reserved_output_tokens=budget.reserved_output_tokens if budget else 4096,
+        context_buffer_ratio=budget.context_buffer_ratio if budget else 0.1,
+        max_direct_chunks=budget.max_direct_chunks if budget else 500,
+    )
+    return runtime_spec.model_copy(update={"route_mode": resolved_route_mode})
+
+
+async def _execute_query_with_remote_fallback(runtime_spec, db: Session):
+    rag_gateway = _resolve_query_gateway(runtime_spec)
+    if (
+        isinstance(rag_gateway, RemoteRagGateway)
+        and getattr(runtime_spec, "route_mode", None) == "rag_retrieval"
+        and not getattr(runtime_spec, "knowledge_base_configs", None)
+    ):
+        runtime_spec = runtime_spec.model_copy(
+            update={
+                "knowledge_base_configs": runtime_resolver.build_query_knowledge_base_configs(
+                    db=db,
+                    knowledge_base_ids=runtime_spec.knowledge_base_ids,
+                    user_name=runtime_spec.user_name,
+                )
+            }
+        )
+    try:
+        return await rag_gateway.query(runtime_spec, db=db)
+    except RemoteRagGatewayError as exc:
+        if not should_fallback_to_local(exc):
+            raise
+        logger.warning(
+            "[internal_rag] Remote query failed for KBs %s, falling back to local gateway: %s",
+            getattr(runtime_spec, "knowledge_base_ids", []),
+            exc,
+        )
+        return await LocalRagGateway().query(runtime_spec, db=db)
+
+
+@router.post(
+    "/retrieve",
+    response_model=InternalRetrieveResponse | ProtectedKnowledgeMediationResponse,
+)
 async def internal_retrieve(
     request: InternalRetrieveRequest,
     db: Session = Depends(get_db),
@@ -157,35 +290,48 @@ async def internal_retrieve(
         Retrieval results with records
     """
     try:
-        from app.services.rag.retrieval_service import RetrievalService
-
-        retrieval_service = RetrievalService()
         knowledge_base_ids = request.knowledge_base_ids or []
         if request.knowledge_base_id is not None:
             knowledge_base_ids = [request.knowledge_base_id]
 
-        if request.document_ids:
+        resolved_document_ids = request.document_ids or []
+        if not resolved_document_ids and request.document_names:
+            resolved_document_ids = _resolve_document_names(
+                db=db,
+                knowledge_base_ids=knowledge_base_ids,
+                document_names=request.document_names,
+            )
+            if not resolved_document_ids:
+                return InternalRetrieveResponse(
+                    mode="rag_retrieval",
+                    records=[],
+                    total=0,
+                    total_estimated_tokens=0,
+                    message="Document names not found in the selected knowledge bases. Use kb_ls to inspect available documents first.",
+                )
+
+        if resolved_document_ids:
             logger.info(
                 "[internal_rag] Filtering by %d documents: %s",
-                len(request.document_ids),
-                request.document_ids,
+                len(resolved_document_ids),
+                resolved_document_ids,
             )
 
         runtime_context = request.runtime_context
         persistence_context = request.persistence_context
+        restricted_mode = bool(
+            persistence_context and persistence_context.restricted_mode
+        )
 
-        result = await retrieval_service.retrieve_for_chat_shell(
-            query=request.query,
-            knowledge_base_ids=knowledge_base_ids,
+        runtime_spec = runtime_resolver.build_query_runtime_spec(
             db=db,
+            knowledge_base_ids=knowledge_base_ids,
+            query=request.query,
             max_results=request.max_results,
-            document_ids=request.document_ids,
-            user_name=request.user_name,
+            document_ids=resolved_document_ids or None,
             route_mode=request.route_mode,
             user_id=persistence_context.user_id if persistence_context else None,
-            user_subtask_id=(
-                persistence_context.user_subtask_id if persistence_context else None
-            ),
+            user_name=request.user_name,
             context_window=runtime_context.context_window if runtime_context else None,
             used_context_tokens=(
                 runtime_context.used_context_tokens if runtime_context else 0
@@ -199,10 +345,10 @@ async def internal_retrieve(
             max_direct_chunks=(
                 runtime_context.max_direct_chunks if runtime_context else 500
             ),
-            restricted_mode=(
-                persistence_context.restricted_mode if persistence_context else False
-            ),
+            restricted_mode=restricted_mode,
         )
+        runtime_spec = _finalize_query_runtime_spec(runtime_spec, db, runtime_context)
+        result = await _execute_query_with_remote_fallback(runtime_spec, db)
 
         records = result.get("records", [])
 
@@ -210,12 +356,12 @@ async def internal_retrieve(
         total_content_chars = sum(len(r.get("content", "")) for r in records)
         total_content_kb = total_content_chars / 1024
         available_for_kb = (
-            retrieval_service._calculate_ratio_based_direct_injection_budget(
+            RetrievalService._calculate_ratio_based_direct_injection_budget(
                 runtime_context.context_window if runtime_context else None
             )
         )
         available_injection_tokens = (
-            retrieval_service._calculate_available_injection_tokens(
+            RetrievalService._calculate_available_injection_tokens(
                 context_window=(
                     runtime_context.context_window if runtime_context else None
                 ),
@@ -247,14 +393,45 @@ async def internal_retrieve(
             available_injection_tokens,
             request.query[:50],
             (
-                f", filtered by {len(request.document_ids)} docs"
-                if request.document_ids
+                f", filtered by {len(resolved_document_ids)} docs"
+                if resolved_document_ids
                 else ""
             ),
         )
 
+        mode = result.get("mode", "rag_retrieval")
+        total_estimated_tokens = result.get("total_estimated_tokens", 0)
+
+        if persistence_context is not None:
+            retrieval_persistence_service.persist_retrieval_result(
+                db=db,
+                user_subtask_id=persistence_context.user_subtask_id,
+                user_id=persistence_context.user_id,
+                query=request.query,
+                mode=mode,
+                records=records,
+                restricted_mode=restricted_mode,
+            )
+
+        if restricted_mode:
+            return await protected_knowledge_mediator.transform(
+                db=db,
+                query=request.query,
+                retrieval_mode=mode,
+                records=records,
+                mediation_context=(
+                    request.mediation_context.model_dump(exclude_none=True)
+                    if request.mediation_context
+                    else None
+                ),
+                knowledge_base_ids=knowledge_base_ids,
+                total_estimated_tokens=total_estimated_tokens,
+                user_id=persistence_context.user_id if persistence_context else None,
+                user_name=request.user_name or "system",
+            )
+
         return InternalRetrieveResponse(
-            mode=result.get("mode", "rag_retrieval"),
+            mode=mode,
             records=[
                 RetrieveRecord(
                     content=r.get("content", ""),
@@ -266,12 +443,16 @@ async def internal_retrieve(
                 for r in records
             ],
             total=len(records),
-            total_estimated_tokens=result.get("total_estimated_tokens", 0),
+            total_estimated_tokens=total_estimated_tokens,
+            message=result.get("message"),
         )
 
     except ValueError as e:
         logger.warning("[internal_rag] Retrieval error: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
+    except RemoteRagGatewayError as e:
+        logger.warning("[internal_rag] Remote retrieval failed: %s", e)
+        raise HTTPException(status_code=e.status_code or 502, detail=str(e)) from e
     except Exception as e:
         logger.error("[internal_rag] Retrieval failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -444,44 +625,13 @@ async def get_knowledge_base_info(
     )
 
 
-class AllChunksRequest(BaseModel):
-    """Request for getting all chunks from a knowledge base."""
-
-    knowledge_base_id: int = Field(..., description="Knowledge base ID")
-    max_chunks: int = Field(
-        default=10000,
-        description="Maximum number of chunks to retrieve (safety limit)",
-    )
-    query: Optional[str] = Field(
-        default=None,
-        description="Optional query string for logging purposes",
-    )
-
-
-class ChunkInfo(BaseModel):
-    """Information for a single chunk."""
-
-    content: str
-    title: str
-    chunk_id: Optional[int] = None
-    doc_ref: Optional[str] = None
-    metadata: Optional[dict] = None
-
-
-class AllChunksResponse(BaseModel):
-    """Response for all chunks query."""
-
-    chunks: list[ChunkInfo]
-    total: int
-
-
-@router.post("/all-chunks", response_model=AllChunksResponse)
+@router.post("/all-chunks", response_model=RemoteListChunksResponse)
 async def get_all_chunks(
-    request: AllChunksRequest,
+    request: RemoteListChunksRequest,
     db: Session = Depends(get_db),
 ):
     """
-    Get all chunks from a knowledge base for direct injection.
+    Legacy internal endpoint for fetching all chunks for direct injection.
 
     This endpoint retrieves all chunks stored in a knowledge base,
     used when the total content fits within the model's context window.
@@ -494,16 +644,18 @@ async def get_all_chunks(
         All chunks from the knowledge base
     """
     try:
-        from app.services.rag.retrieval_service import RetrievalService
-
-        retrieval_service = RetrievalService()
-
-        chunks = await retrieval_service.get_all_chunks_from_knowledge_base(
-            knowledge_base_id=request.knowledge_base_id,
+        runtime_spec = runtime_resolver.build_internal_list_chunks_runtime_spec(
             db=db,
+            knowledge_base_id=request.knowledge_base_id,
             max_chunks=request.max_chunks,
             query=request.query,
+            metadata_condition=request.metadata_condition,
         )
+        result = await LocalRagGateway().list_chunks(
+            runtime_spec,
+            db=db,
+        )
+        chunks = result.get("chunks", [])
 
         # Calculate total content size for logging
         total_content_chars = sum(len(c.get("content", "")) for c in chunks)
@@ -516,9 +668,9 @@ async def get_all_chunks(
             total_content_kb,
         )
 
-        return AllChunksResponse(
+        return RemoteListChunksResponse(
             chunks=[
-                ChunkInfo(
+                RemoteListChunkRecord(
                     content=c.get("content", ""),
                     title=c.get("title", "Unknown"),
                     chunk_id=c.get("chunk_id"),
@@ -527,7 +679,7 @@ async def get_all_chunks(
                 )
                 for c in chunks
             ],
-            total=len(chunks),
+            total=result.get("total", len(chunks)),
         )
 
     except ValueError as e:
@@ -737,7 +889,7 @@ async def read_document(
         Document content with pagination info
     """
     try:
-        from app.services.rag.document_read_service import (
+        from app.services.knowledge.document_read_service import (
             DOCUMENT_READ_ERROR_ACCESS_DENIED,
             DOCUMENT_READ_ERROR_NOT_FOUND,
             document_read_service,
@@ -799,7 +951,7 @@ async def read_documents(
 ) -> ReadDocsResponse:
     """Read multiple documents and optionally persist kb_head usage."""
     try:
-        from app.services.rag.document_read_service import document_read_service
+        from app.services.knowledge.document_read_service import document_read_service
 
         persistence_context = request.persistence_context
         results = document_read_service.read_documents(

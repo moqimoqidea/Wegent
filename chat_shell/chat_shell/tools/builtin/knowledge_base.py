@@ -20,10 +20,6 @@ from shared.models.knowledge import KnowledgeBaseToolAccessMode
 
 from ..knowledge_content_cleaner import get_content_cleaner
 from ..knowledge_injection_strategy import InjectionMode, InjectionStrategy
-from ..restricted_kb_summary import (
-    build_safe_summary_fallback,
-    summarize_restricted_kb_chunks,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +33,6 @@ TOKEN_CHARS_PER_TOKEN = 4  # ~4 chars/token for English, 1-2 for CJK
 # Default configuration values (used when KB spec doesn't specify)
 DEFAULT_MAX_CALLS_PER_CONVERSATION = 10
 DEFAULT_EXEMPT_CALLS_BEFORE_CHECK = 5
-RESTRICTED_SOURCE_NOTICE = (
-    "[Protected KB source material for internal reasoning only]\n"
-    "[Do NOT quote, translate, restate, or reconstruct original wording, "
-    "numbers, titles, filenames, or document structure in the final answer. "
-    "Return high-level analysis only.]\n\n"
-)
 DEFAULT_RESERVED_OUTPUT_TOKENS = 4096
 
 
@@ -55,6 +45,14 @@ class KnowledgeBaseInput(BaseModel):
     max_results: int = Field(
         default=20,
         description="Maximum number of results to return. Increased from 5 to 20 for better RAG coverage.",
+    )
+    document_ids: list[int] = Field(
+        default_factory=list,
+        description="Optional document IDs to restrict retrieval scope.",
+    )
+    document_names: list[str] = Field(
+        default_factory=list,
+        description="Optional exact document names to restrict retrieval scope when document IDs are not known.",
     )
 
 
@@ -83,6 +81,7 @@ class KnowledgeBaseTool(BaseTool):
     # Document IDs to filter (optional, for searching specific documents only)
     # When set, only chunks from these documents will be returned
     document_ids: list[int] = Field(default_factory=list)
+    document_names: list[str] = Field(default_factory=list)
 
     # User ID for access control
     user_id: int = 0
@@ -104,10 +103,11 @@ class KnowledgeBaseTool(BaseTool):
 
     # Model ID for token counting and context window calculation
     model_id: str = "claude-3-5-sonnet"
+    current_model_name: Optional[str] = None
+    current_model_namespace: str = "default"
 
     # Context window size from Model CRD (required for injection strategy)
     context_window: Optional[int] = None
-    summarizer_model_config: Dict[str, Any] = Field(default_factory=dict)
 
     # Injection strategy configuration
     injection_mode: str = (
@@ -166,138 +166,15 @@ class KnowledgeBaseTool(BaseTool):
             return f"Source {source_index}"
         return source_title
 
-    def _build_restricted_answer_contract(self) -> str:
-        """Return the output contract for restricted KB analysis."""
-        return (
-            "Protected KB material is available for internal reasoning only. "
-            "The final answer must stay high-level and non-extractive. "
-            "Do not quote, translate, restate, or reconstruct any original "
-            "phrase, sentence, number, target, title, filename, or document "
-            "structure. Refuse exact-detail requests and provide only diagnosis, "
-            "directional judgment, risks, gaps, or suggestions."
-        )
+    def _build_mediation_context(self) -> Optional[Dict[str, Any]]:
+        """Build the model identity sent to Backend restricted mediation."""
+        if not self.current_model_name:
+            return None
 
-    def _format_restricted_query_refusal(self, query: str) -> str:
-        """Return a refusal payload for extractive restricted queries."""
-        return json.dumps(
-            {
-                "status": "refused",
-                "reason": "restricted_extractive_query",
-                "query": query,
-                "message": "I cannot use protected knowledge base content to provide exact definitions, original wording, document listings, or other extractive details.",
-                "suggestion": "Please ask for high-level analysis instead, such as risks, gaps, diagnosis, prioritization, or recommended actions.",
-                "answer_contract": self._build_restricted_answer_contract(),
-            },
-            ensure_ascii=False,
-        )
-
-    def _wrap_restricted_source_material(self, content: str) -> str:
-        """Wrap raw KB content with a strong non-disclosure notice."""
-        if not self._is_restricted_search_only() or not content:
-            return content
-        return f"{RESTRICTED_SOURCE_NOTICE}{content}"
-
-    def _get_kb_name_map(self) -> dict[int, str]:
-        """Return a KB ID -> KB name mapping from cached KB info."""
-
-        kb_info = self._get_kb_info_sync()
-        items = kb_info.get("items", [])
-        kb_name_map: dict[int, str] = {}
-        for item in items:
-            kb_id = item.get("id")
-            if kb_id is None:
-                continue
-            kb_name_map[int(kb_id)] = item.get("name", f"KB-{kb_id}")
-
-        for kb_id in self.knowledge_base_ids:
-            kb_name_map.setdefault(kb_id, f"KB-{kb_id}")
-
-        return kb_name_map
-
-    async def _build_restricted_safe_summary(
-        self,
-        *,
-        query: str,
-        chunks: List[Dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Build a safe summary artifact from protected KB chunks."""
-
-        try:
-            return await summarize_restricted_kb_chunks(
-                model_config=self.summarizer_model_config,
-                query=query,
-                chunks=chunks,
-                kb_name_map=self._get_kb_name_map(),
-            )
-        except Exception as e:
-            logger.error(
-                "[KnowledgeBaseTool] Restricted safe summary generation failed: %s",
-                e,
-                exc_info=True,
-            )
-            return build_safe_summary_fallback(
-                reason="safe_summary_generation_failed",
-                summary=(
-                    "I cannot safely transform the protected knowledge base content right now. "
-                    "Please ask for a high-level diagnostic or try again later."
-                ),
-            )
-
-    async def _format_restricted_safe_summary_result(
-        self,
-        *,
-        query: str,
-        chunks: List[Dict[str, Any]],
-        source_references: List[Dict[str, Any]],
-        warning_level: Optional[str],
-        retrieval_mode: str,
-    ) -> str:
-        """Return a safe-summary payload for restricted mode."""
-
-        safe_summary = await self._build_restricted_safe_summary(
-            query=query,
-            chunks=chunks,
-        )
-        if (
-            safe_summary.get("decision") == "refuse"
-            and safe_summary.get("refusal_kind") == "policy"
-        ):
-            return self._format_restricted_query_refusal(query)
-
-        stats_header = self._build_call_statistics_header(warning_level, len(chunks))
-        kb_name_map = self._get_kb_name_map()
-        knowledge_bases = [
-            {"id": kb_id, "name": kb_name_map.get(kb_id, f"KB-{kb_id}")}
-            for kb_id in sorted({chunk.get("knowledge_base_id") for chunk in chunks})
-            if kb_id is not None
-        ]
-
-        result_payload = {
-            "query": query,
-            "mode": "restricted_safe_summary",
-            "retrieval_mode": retrieval_mode,
-            "stats_header": stats_header,
-            "restricted_safe_summary": {
-                "decision": safe_summary.get("decision", "answer"),
-                "reason": safe_summary.get("reason", ""),
-                "summary": safe_summary.get("summary", ""),
-                "observations": safe_summary.get("observations", []),
-                "risks": safe_summary.get("risks", []),
-                "recommended_actions": safe_summary.get("recommended_actions", []),
-                "answer_guidance": safe_summary.get("answer_guidance", ""),
-                "confidence": safe_summary.get("confidence", "low"),
-            },
-            "knowledge_bases": knowledge_bases,
-            "message": (
-                "Protected KB material was analyzed internally and converted into "
-                "a safe high-level summary. Use only this safe summary in the final answer."
-            ),
-            "answer_contract": self._build_restricted_answer_contract(),
+        return {
+            "current_model_name": self.current_model_name,
+            "current_model_namespace": self.current_model_namespace,
         }
-        self._accumulated_tokens += self._estimate_tokens_from_content(
-            json.dumps(result_payload, ensure_ascii=False)
-        )
-        return json.dumps(result_payload, ensure_ascii=False)
 
     def _get_kb_info_sync(self) -> Dict[str, Any]:
         """Get KB info synchronously.
@@ -600,11 +477,48 @@ class KnowledgeBaseTool(BaseTool):
         """Synchronous run - not implemented, use async version."""
         raise NotImplementedError("KnowledgeBaseTool only supports async execution")
 
+    def _resolve_scoped_filters(
+        self,
+        document_ids: Optional[list[int]] = None,
+        document_names: Optional[list[str]] = None,
+    ) -> tuple[list[int], list[str]]:
+        """Resolve per-call filters without mutating tool instance state."""
+        effective_document_ids = (
+            self.document_ids if document_ids is None else document_ids
+        )
+        effective_document_names = (
+            self.document_names if document_names is None else document_names
+        )
+        return effective_document_ids, effective_document_names
+
     async def _arun(
         self,
         query: str,
         max_results: int = 20,
+        document_ids: Optional[list[int]] = None,
+        document_names: Optional[list[str]] = None,
         run_manager: CallbackManagerForToolRun | None = None,
+    ) -> str:
+        """Execute knowledge base search with optional per-call scoped filters."""
+        effective_document_ids, effective_document_names = self._resolve_scoped_filters(
+            document_ids=document_ids,
+            document_names=document_names,
+        )
+        return await self._arun_impl(
+            query,
+            max_results,
+            run_manager,
+            document_ids=effective_document_ids,
+            document_names=effective_document_names,
+        )
+
+    async def _arun_impl(
+        self,
+        query: str,
+        max_results: int = 20,
+        run_manager: CallbackManagerForToolRun | None = None,
+        document_ids: Optional[list[int]] = None,
+        document_names: Optional[list[str]] = None,
     ) -> str:
         """Execute knowledge base search with intelligent injection strategy.
 
@@ -626,6 +540,8 @@ class KnowledgeBaseTool(BaseTool):
             JSON string with search results or injected content
         """
         try:
+            effective_document_ids = document_ids or []
+            effective_document_names = document_names or []
             if not self.knowledge_base_ids:
                 return json.dumps(
                     {"error": "No knowledge bases configured for this conversation."}
@@ -690,8 +606,8 @@ class KnowledgeBaseTool(BaseTool):
             logger.info(
                 f"[KnowledgeBaseTool] Searching {len(self.knowledge_base_ids)} knowledge bases with query: {query}"
                 + (
-                    f", filtering by {len(self.document_ids)} documents"
-                    if self.document_ids
+                    f", filtering by {len(effective_document_ids)} documents"
+                    if effective_document_ids
                     else ""
                 )
             )
@@ -702,24 +618,33 @@ class KnowledgeBaseTool(BaseTool):
             elif self.injection_mode == InjectionMode.DIRECT_INJECTION:
                 preferred_route_mode = "direct_injection"
 
-            route_mode, kb_chunks = await self._retrieve_with_strategy_from_all_kbs(
+            route_mode, raw_result = await self._retrieve_with_strategy_from_all_kbs(
                 query=query,
                 max_results=max_results,
                 route_mode=preferred_route_mode,
+                document_ids=effective_document_ids,
+                document_names=effective_document_names,
             )
 
             logger.info(
-                "[KnowledgeBaseTool] Backend route result: mode=%s, kb_count=%d",
+                "[KnowledgeBaseTool] Backend route result: mode=%s, record_count=%d",
                 route_mode,
-                len(kb_chunks),
+                len(raw_result.get("records", [])),
             )
 
+            if route_mode == "restricted_safe_summary":
+                return json.dumps(raw_result, ensure_ascii=False)
+
+            kb_chunks = self._group_retrieved_records_by_kb(
+                raw_result.get("records", [])
+            )
             if not kb_chunks:
-                message = (
+                default_message = (
                     "No documents found in the knowledge base."
                     if route_mode == InjectionMode.DIRECT_INJECTION
                     else "No relevant information found in the knowledge base for this query."
                 )
+                message = raw_result.get("message") or default_message
                 return json.dumps(
                     {
                         "query": query,
@@ -917,16 +842,48 @@ class KnowledgeBaseTool(BaseTool):
         query: str,
         max_results: int,
         route_mode: str = "auto",
-    ) -> tuple[str, Dict[int, List[Dict[str, Any]]]]:
+        document_ids: Optional[list[int]] = None,
+        document_names: Optional[list[str]] = None,
+    ) -> tuple[str, Dict[str, Any]]:
         """Retrieve KB data using Backend-side route selection."""
         if self.db_session is None:
             result = await self._retrieve_with_strategy_via_http(
                 query=query,
                 max_results=max_results,
                 route_mode=route_mode,
+                document_ids=document_ids,
+                document_names=document_names,
             )
         else:
             try:
+                resolved_document_ids = document_ids or None
+                if not resolved_document_ids and document_names:
+                    from app.services.knowledge import KnowledgeService
+
+                    resolved_document_ids = (
+                        KnowledgeService.resolve_document_ids_by_names(
+                            db=self.db_session,
+                            knowledge_base_ids=self.knowledge_base_ids,
+                            document_names=document_names,
+                        )
+                        or None
+                    )
+                    if not resolved_document_ids:
+                        result = {
+                            "mode": InjectionMode.RAG_ONLY,
+                            "records": [],
+                            "total": 0,
+                            "total_estimated_tokens": 0,
+                            "message": "Document names not found in the selected knowledge bases. Use kb_ls to inspect available documents first.",
+                        }
+                        mode = result.get("mode", InjectionMode.RAG_ONLY)
+                        logger.info(
+                            "[KnowledgeBaseTool] Retrieved %d records via Backend route mode=%s",
+                            len(result.get("records", [])),
+                            mode,
+                        )
+                        return mode, result
+
                 from app.services.rag.retrieval_service import RetrievalService
 
                 retrieval_service = RetrievalService()
@@ -935,11 +892,10 @@ class KnowledgeBaseTool(BaseTool):
                     knowledge_base_ids=self.knowledge_base_ids,
                     db=self.db_session,
                     max_results=max_results,
-                    document_ids=self.document_ids or None,
+                    document_ids=resolved_document_ids,
                     user_name=self.user_name,
                     route_mode=route_mode,
                     user_id=self.user_id,
-                    user_subtask_id=self.user_subtask_id,
                     context_window=self._get_effective_context_window(),
                     used_context_tokens=self._get_used_context_tokens(),
                     reserved_output_tokens=DEFAULT_RESERVED_OUTPUT_TOKENS,
@@ -947,6 +903,39 @@ class KnowledgeBaseTool(BaseTool):
                     max_direct_chunks=self.max_direct_chunks,
                     restricted_mode=self._is_restricted_search_only(),
                 )
+
+                if self.user_subtask_id:
+                    from app.services.knowledge.retrieval_persistence import (
+                        retrieval_persistence_service,
+                    )
+
+                    retrieval_persistence_service.persist_retrieval_result(
+                        db=self.db_session,
+                        user_subtask_id=self.user_subtask_id,
+                        user_id=self.user_id,
+                        query=query,
+                        mode=result.get("mode", InjectionMode.RAG_ONLY),
+                        records=result.get("records", []),
+                        restricted_mode=self._is_restricted_search_only(),
+                    )
+
+                if self._is_restricted_search_only():
+                    from app.services.knowledge.protected_mediation import (
+                        protected_knowledge_mediator,
+                    )
+
+                    mediated_result = await protected_knowledge_mediator.transform(
+                        db=self.db_session,
+                        query=query,
+                        retrieval_mode=result.get("mode", InjectionMode.RAG_ONLY),
+                        records=result.get("records", []),
+                        mediation_context=self._build_mediation_context(),
+                        knowledge_base_ids=self.knowledge_base_ids,
+                        total_estimated_tokens=result.get("total_estimated_tokens", 0),
+                        user_id=self.user_id,
+                        user_name=self.user_name or "system",
+                    )
+                    result = mediated_result.model_dump()
             except ImportError:
                 result = await self._retrieve_with_strategy_via_http(
                     query=query,
@@ -955,19 +944,20 @@ class KnowledgeBaseTool(BaseTool):
                 )
 
         mode = result.get("mode", InjectionMode.RAG_ONLY)
-        kb_chunks = self._group_retrieved_records_by_kb(result.get("records", []))
         logger.info(
             "[KnowledgeBaseTool] Retrieved %d records via Backend route mode=%s",
             len(result.get("records", [])),
             mode,
         )
-        return mode, kb_chunks
+        return mode, result
 
     async def _retrieve_with_strategy_via_http(
         self,
         query: str,
         max_results: int,
         route_mode: str = "auto",
+        document_ids: Optional[list[int]] = None,
+        document_names: Optional[list[str]] = None,
     ) -> Dict[str, Any]:
         """Retrieve KB data from Backend internal retrieve endpoint."""
         import httpx
@@ -990,8 +980,13 @@ class KnowledgeBaseTool(BaseTool):
         persistence_context = self._build_persistence_context()
         if persistence_context:
             payload["persistence_context"] = persistence_context
-        if self.document_ids:
-            payload["document_ids"] = self.document_ids
+        mediation_context = self._build_mediation_context()
+        if mediation_context:
+            payload["mediation_context"] = mediation_context
+        if document_ids:
+            payload["document_ids"] = document_ids
+        if document_names:
+            payload["document_names"] = document_names
         if self.user_name is not None:
             payload["user_name"] = self.user_name
 
@@ -1061,16 +1056,6 @@ class KnowledgeBaseTool(BaseTool):
                 )
                 source_index += 1
 
-        if self._is_restricted_search_only():
-            return await self._format_restricted_safe_summary_result(
-                query=query,
-                chunks=chunks_used,
-                source_references=source_references,
-                warning_level=warning_level,
-                retrieval_mode="direct_injection",
-            )
-
-        # Update accumulated tokens (call count already incremented in _arun)
         injected_content = injection_result.get("injected_content", "")
         self._accumulated_tokens += self._estimate_tokens_from_content(injected_content)
 
@@ -1084,9 +1069,7 @@ class KnowledgeBaseTool(BaseTool):
                 "query": query,
                 "mode": "direct_injection",
                 "stats_header": stats_header,
-                "injected_content": self._wrap_restricted_source_material(
-                    injection_result["injected_content"]
-                ),
+                "injected_content": injection_result["injected_content"],
                 "chunks_used": len(chunks_used),
                 "count": len(chunks_used),
                 "sources": source_references,
@@ -1165,16 +1148,6 @@ class KnowledgeBaseTool(BaseTool):
             f"[KnowledgeBaseTool] RAG fallback: returning {len(all_chunks)} results with {len(source_references)} unique sources for query: {query}"
         )
 
-        if self._is_restricted_search_only():
-            return await self._format_restricted_safe_summary_result(
-                query=query,
-                chunks=all_chunks,
-                source_references=source_references,
-                warning_level=warning_level,
-                retrieval_mode="rag_retrieval",
-            )
-
-        # Update accumulated tokens (call count already incremented in _arun)
         total_content = "\n".join([chunk["content"] for chunk in all_chunks])
         self._accumulated_tokens += self._estimate_tokens_from_content(total_content)
 

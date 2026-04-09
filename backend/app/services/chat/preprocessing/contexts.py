@@ -503,6 +503,12 @@ def _sync_kb_contexts_to_task(
                     f"[_sync_kb_contexts_to_task] Synced KB {knowledge_id} "
                     f"from subtask to task {task.id}"
                 )
+            else:
+                logger.info(
+                    f"[_sync_kb_contexts_to_task] Sync skipped for KB {knowledge_id} "
+                    f"on task {task.id} selected by user {user_id}; "
+                    "see sync_subtask_kb_to_task info logs for the skip reason"
+                )
         except Exception as e:
             # Log but don't fail - syncing to task level is best-effort
             logger.warning(
@@ -1203,7 +1209,9 @@ def _prepare_kb_tools_from_contexts(
         user_id=user_id,
         db_session=db,
         user_subtask_id=user_subtask_id,
-        summarizer_model_config=model_config or {},
+        current_model_name=(model_config or {}).get("model_name"),
+        current_model_namespace=(model_config or {}).get("model_namespace")
+        or "default",
         injection_mode="hybrid",
         tool_access_mode=kb_tool_access_mode,
     )
@@ -1317,11 +1325,15 @@ def _build_kb_meta_prompt(
             format_restricted_kb_meta_prompt,
             select_kb_summary_text,
         )
+        from app.services.knowledge import KnowledgeService
         from app.services.knowledge.task_knowledge_base_service import (
             task_knowledge_base_service,
         )
 
         kb_map = task_knowledge_base_service.get_knowledge_bases_by_ids(
+            db, knowledge_base_ids
+        )
+        kb_prompt_stats = KnowledgeService.get_document_prompt_stats(
             db, knowledge_base_ids
         )
 
@@ -1333,6 +1345,10 @@ def _build_kb_meta_prompt(
                     {
                         "kb_id": kb_id,
                         "kb_name": "Unknown",
+                        "search_available": False,
+                        "total_document_count": 0,
+                        "searchable_document_count": 0,
+                        "spreadsheet_document_count": 0,
                         "summary_text": "",
                         "topics": [],
                     }
@@ -1363,10 +1379,24 @@ def _build_kb_meta_prompt(
                     exc_info=True,
                 )
 
+            stats = kb_prompt_stats.get(
+                kb_id,
+                {
+                    "total_document_count": 0,
+                    "searchable_document_count": 0,
+                    "spreadsheet_document_count": 0,
+                },
+            )
+            retrieval_config = kb_spec.get("retrievalConfig") or {}
+
             kb_meta_list.append(
                 {
                     "kb_id": kb_id,
                     "kb_name": kb_name,
+                    "search_available": bool(retrieval_config.get("retriever_name")),
+                    "total_document_count": stats["total_document_count"],
+                    "searchable_document_count": stats["searchable_document_count"],
+                    "spreadsheet_document_count": stats["spreadsheet_document_count"],
                     "summary_text": summary_text,
                     "topics": topics,
                 }

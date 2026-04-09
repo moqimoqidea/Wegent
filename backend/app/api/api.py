@@ -17,6 +17,7 @@ from app.api.endpoints import (
     openapi_responses,
     pet,
     projects,
+    prompt_optimization,
     quota,
     repository,
     share,
@@ -59,10 +60,12 @@ from app.api.endpoints.internal import bots_router as internal_bots_router
 from app.api.endpoints.internal import (
     callback_router,
     chat_storage_router,
+    rag_content_router,
     services_router,
     skills_router,
     subscriptions_router,
     tables_router,
+    workspace_archives_router,
 )
 
 # RAG internal router is conditionally imported based on STANDALONE_MODE
@@ -188,11 +191,19 @@ api_router.include_router(
     skill_market.router, prefix="/skill-market", tags=["skill-market"]
 )
 api_router.include_router(skill_identity.router, tags=["skill-identity"])
+api_router.include_router(
+    prompt_optimization.router,
+    prefix="/prompt-optimization",
+    tags=["prompt-optimization"],
+)
 api_router.include_router(k_router)
 
 # Internal API endpoints (for service-to-service communication)
 api_router.include_router(
     chat_storage_router, prefix="/internal", tags=["internal-chat"]
+)
+api_router.include_router(
+    rag_content_router, prefix="/internal", tags=["internal-rag-content"]
 )
 
 # RAG internal router is conditionally registered based on STANDALONE_MODE
@@ -206,6 +217,11 @@ api_router.include_router(
 )
 api_router.include_router(
     services_router, prefix="/internal", tags=["internal-services"]
+)
+api_router.include_router(
+    workspace_archives_router,
+    prefix="/internal",
+    tags=["internal-workspace-archives"],
 )
 api_router.include_router(
     subscriptions_router, prefix="/internal", tags=["internal-subscriptions"]

@@ -25,6 +25,7 @@ from app.services.adapters.shell_utils import (
     get_shell_type,
     get_shells_by_names_batch,
 )
+from app.services.adapters.task_kinds.running_tasks import get_running_tasks_for_team
 from app.services.base import BaseService
 from shared.utils.crypto import encrypt_sensitive_data, is_data_encrypted
 
@@ -303,6 +304,10 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             "systemPrompt": obj_in.system_prompt or "",
             "mcpServers": obj_in.mcp_servers or {},
         }
+        if obj_in.default_knowledge_base_refs is not None:
+            ghost_spec["defaultKnowledgeBaseRefs"] = [
+                ref.model_dump() for ref in obj_in.default_knowledge_base_refs
+            ]
         if obj_in.skills:
             ghost_spec["skills"] = obj_in.skills
             skill_refs = self._resolve_skill_refs(
@@ -971,6 +976,15 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             flag_modified(ghost, "json")  # Mark JSON field as modified
             db.add(ghost)  # Add to session
 
+        if "default_knowledge_base_refs" in update_data and ghost:
+            ghost_crd = Ghost.model_validate(ghost.json)
+            ghost_crd.spec.defaultKnowledgeBaseRefs = (
+                obj_in.default_knowledge_base_refs or []
+            )
+            ghost.json = ghost_crd.model_dump()
+            flag_modified(ghost, "json")
+            db.add(ghost)
+
         if "skills" in update_data and ghost:
             # Validate that all referenced skills exist for this user
             skills = update_data["skills"] or []
@@ -1102,46 +1116,13 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         Returns:
             List of running task info dictionaries
         """
-        from app.models.task import TaskResource
-        from app.schemas.kind import Task
-
         if not teams:
             return []
 
-        # Get all active tasks
-        all_tasks = (
-            db.query(TaskResource)
-            .filter(
-                TaskResource.kind == "Task",
-                TaskResource.is_active == TaskResource.STATE_ACTIVE,
-            )
-            .all()
-        )
-
         running_tasks = []
         for team in teams:
-            team_name = team.name
-            team_namespace = team.namespace
-
-            for task in all_tasks:
-                task_crd = Task.model_validate(task.json)
-                if (
-                    task_crd.spec.teamRef.name == team_name
-                    and task_crd.spec.teamRef.namespace == team_namespace
-                ):
-                    if task_crd.status and task_crd.status.status in [
-                        "PENDING",
-                        "RUNNING",
-                    ]:
-                        running_tasks.append(
-                            {
-                                "task_id": task.id,
-                                "task_name": task.name,
-                                "task_title": task_crd.spec.title,
-                                "status": task_crd.status.status,
-                                "team_name": team_name,
-                            }
-                        )
+            for running_task in get_running_tasks_for_team(db, team):
+                running_tasks.append({**running_task, "team_name": team.name})
 
         return running_tasks
 
@@ -1678,10 +1659,15 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         preload_skills = []
         skill_refs = {}
         preload_skill_refs = {}
+        default_knowledge_base_refs = []
         if ghost:
             ghost_crd = Ghost.model_validate(ghost.json)
             skills = ghost_crd.spec.skills or []
             preload_skills = ghost_crd.spec.preload_skills or []
+            default_knowledge_base_refs = [
+                ref.model_dump()
+                for ref in (ghost_crd.spec.defaultKnowledgeBaseRefs or [])
+            ]
             skill_refs = (
                 {
                     name: ref.model_dump()
@@ -1709,6 +1695,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             "agent_config": agent_config,
             "system_prompt": system_prompt,
             "mcp_servers": mcp_servers,
+            "default_knowledge_base_refs": default_knowledge_base_refs,
             "skills": skills,
             "skill_refs": skill_refs,
             "preload_skills": preload_skills,

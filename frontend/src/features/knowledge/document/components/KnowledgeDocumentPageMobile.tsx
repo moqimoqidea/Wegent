@@ -18,6 +18,8 @@ import { useRouter } from 'next/navigation'
 import { userApis } from '@/apis/user'
 import { teamService } from '@/features/tasks/service/teamService'
 import { saveGlobalModelPreference, type ModelPreference } from '@/utils/modelPreferences'
+import { getModelFromConfig } from '@/features/settings/services/bots'
+import { canManageNamespace } from '@/utils/namespace-permissions'
 import { useKnowledgeTree } from '../hooks/useKnowledgeTree'
 import { KnowledgeTree } from './KnowledgeTree'
 import { CreateKnowledgeBaseDialog } from './CreateKnowledgeBaseDialog'
@@ -64,9 +66,11 @@ export function KnowledgeDocumentPageMobile() {
     loadDefaultTeamsAndTeams()
   }, [])
 
-  // Find knowledge mode default team ID
-  const knowledgeDefaultTeamId = useMemo(() => {
-    if (!defaultTeamsConfig?.knowledge || teams.length === 0) return null
+  // Find knowledge mode default team and its bind_model
+  const knowledgeTeamInfo = useMemo(() => {
+    if (!defaultTeamsConfig?.knowledge || teams.length === 0) {
+      return { id: null, bindModel: null as string | null }
+    }
 
     const { name, namespace } = defaultTeamsConfig.knowledge
     const normalizedNamespace = namespace || 'default'
@@ -76,8 +80,24 @@ export function KnowledgeDocumentPageMobile() {
       return team.name === name && teamNamespace === normalizedNamespace
     })
 
-    return matchedTeam?.id ?? null
+    // Get bind_model from team's first bot config
+    let bindModel: string | null = null
+    if (matchedTeam?.bots?.length) {
+      const firstBot = matchedTeam.bots[0]
+      const botConfig = firstBot?.bot?.agent_config as Record<string, unknown> | undefined
+      if (botConfig) {
+        bindModel = getModelFromConfig(botConfig)
+      }
+    }
+
+    return {
+      id: matchedTeam?.id ?? null,
+      bindModel,
+    }
   }, [defaultTeamsConfig, teams])
+
+  const knowledgeDefaultTeamId = knowledgeTeamInfo.id
+  const knowledgeBindModel = knowledgeTeamInfo.bindModel
 
   // Helper: save summary model to knowledge team's preference
   const saveSummaryModelToPreference = useCallback(
@@ -147,7 +167,8 @@ export function KnowledgeDocumentPageMobile() {
           exempt_calls_before_check: data.exempt_calls_before_check,
         })
 
-        if (kbType === 'notebook' && data.summary_enabled && data.summary_model_ref) {
+        // Save model preference when summary is enabled and model is selected
+        if (data.summary_enabled && data.summary_model_ref) {
           saveSummaryModelToPreference(data.summary_model_ref)
         }
 
@@ -177,6 +198,14 @@ export function KnowledgeDocumentPageMobile() {
     window.location.href = `/settings?section=groups&tab=group-team&group=${encodeURIComponent(group.name)}`
   }, [])
 
+  const canManageGroup = useCallback(
+    (group: Group) =>
+      canManageNamespace({
+        namespaceRole: group.my_role,
+      }),
+    []
+  )
+
   return (
     <div className="flex flex-col h-full" data-testid="knowledge-document-page-mobile">
       {/* Full-screen knowledge tree */}
@@ -189,7 +218,7 @@ export function KnowledgeDocumentPageMobile() {
         onSelectKb={handleSelectKb}
         onCreateKb={handleCreateKb}
         onOpenGroupSettings={handleOpenGroupSettings}
-        isAdmin={tree.isAdmin}
+        canManageGroup={canManageGroup}
       />
 
       {/* Dialogs */}
@@ -212,6 +241,7 @@ export function KnowledgeDocumentPageMobile() {
         groupName={createGroupName}
         kbType={createKbType}
         knowledgeDefaultTeamId={knowledgeDefaultTeamId}
+        bindModel={knowledgeBindModel}
       />
     </div>
   )
