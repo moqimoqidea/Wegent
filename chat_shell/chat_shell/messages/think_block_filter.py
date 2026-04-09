@@ -99,11 +99,27 @@ def _denormalize_for_anthropic(content: list) -> list:
     Such blocks originate from non-Claude providers (e.g. Kimi) that use
     the Anthropic protocol without producing signatures.
 
-    Non-reasoning blocks are passed through unchanged.
+    Non-reasoning blocks are passed through unchanged.  Legacy ``thinking``
+    blocks (pre-normalization data) are validated: kept if they carry a
+    ``signature``, dropped otherwise.
     """
     result: list = []
     for block in content:
-        if not isinstance(block, dict) or block.get("type") != _REASONING_TYPE:
+        if not isinstance(block, dict):
+            result.append(block)
+            continue
+
+        block_type = block.get("type")
+
+        # Legacy "thinking" blocks stored before normalization was introduced.
+        # Claude API requires signature on every thinking block, so drop
+        # legacy blocks that lack one.
+        if block_type == _LEGACY_ANTHROPIC_TYPE:
+            if block.get("signature"):
+                result.append(block)
+            continue
+
+        if block_type != _REASONING_TYPE:
             result.append(block)
             continue
 
