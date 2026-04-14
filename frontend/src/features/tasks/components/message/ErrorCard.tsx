@@ -45,7 +45,7 @@ export interface ErrorCardProps {
   selectedTeam?: Team | null
   isLastErrorMessage: boolean
   onRetry?: (message: Message) => void
-  onRetryWithModel?: (message: Message, modelName: string, modelType?: string) => void
+  onRetryWithModel?: (message: Message, model: UnifiedModel) => void
 }
 
 // Error types that support model switching as a solution
@@ -143,7 +143,7 @@ export function ErrorCard({
   const handleRetryWithModel = useCallback(
     (model: UnifiedModel) => {
       handleInteraction('switch_model')
-      onRetryWithModel?.(message, model.name, model.type)
+      onRetryWithModel?.(message, model)
     },
     [handleInteraction, onRetryWithModel, message]
   )
@@ -188,6 +188,7 @@ export function ErrorCard({
         subtaskId={subtaskId}
         taskId={taskId}
         timestamp={timestamp}
+        userId={user?.id}
         userName={user?.user_name}
         label={t('errors.copy_diagnostic')}
         successLabel={t('errors.copy_diagnostic_success')}
@@ -283,6 +284,7 @@ function ErrorCardCopyDeveloper({
   subtaskId,
   taskId,
   timestamp,
+  userId,
   userName,
   label,
   successLabel,
@@ -294,6 +296,7 @@ function ErrorCardCopyDeveloper({
   subtaskId?: number
   taskId?: number
   timestamp: number
+  userId?: number
   userName?: string
   label: string
   successLabel: string
@@ -302,6 +305,7 @@ function ErrorCardCopyDeveloper({
 }) {
   const handleCopy = useCallback(async () => {
     const diagnosticInfo = {
+      userId: userId ?? null,
       username: userName || 'unknown',
       taskId: taskId ?? null,
       subtaskId: subtaskId ?? null,
@@ -316,7 +320,7 @@ function ErrorCardCopyDeveloper({
     } catch {
       // Fallback: textarea select
     }
-  }, [error, errorType, subtaskId, taskId, timestamp, userName, onCopySuccess])
+  }, [error, errorType, subtaskId, taskId, timestamp, userId, userName, onCopySuccess])
 
   return (
     <div className="pl-7">

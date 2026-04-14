@@ -484,6 +484,8 @@ function ChatAreaContent({
     selectedTeam: chatState.selectedTeam,
     selectedModel: effectiveSelectedModel,
     forceOverride: chatState.forceOverride,
+    setSelectedModel: chatState.setSelectedModel,
+    setForceOverride: chatState.setForceOverride,
     selectedRepo: chatState.selectedRepo,
     selectedBranch: chatState.selectedBranch,
     showRepositorySelector,
@@ -736,10 +738,9 @@ function ChatAreaContent({
   const handleRetryWithModelFromMessagesArea = useCallback(
     (
       message: import('../message/MessageBubble').Message,
-      modelName: string,
-      modelType?: string
+      model: import('@/apis/models').UnifiedModel
     ) => {
-      void handleRetryWithModelRef.current(message, modelName, modelType)
+      void handleRetryWithModelRef.current(message, model)
     },
     []
   )

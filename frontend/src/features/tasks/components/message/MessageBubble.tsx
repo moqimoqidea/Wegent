@@ -48,6 +48,7 @@ import VideoConfigBadge from './VideoConfigBadge'
 import type { ClarificationData, FinalPromptData, ClarificationAnswer } from '@/types/api'
 import type { SourceReference, GeminiAnnotation } from '@/types/socket'
 import type { Model } from '../../hooks/useModelSelection'
+import type { UnifiedModel } from '@/apis/models'
 import type { MessageBlock } from './thinking/types'
 import { useTraceAction } from '@/hooks/useTraceAction'
 import { useMessageFeedback } from '@/hooks/useMessageFeedback'
@@ -173,7 +174,7 @@ export interface MessageBubbleProps {
   /** Callback when user clicks retry button for failed messages */
   onRetry?: (message: Message) => void
   /** Callback when user clicks a recommended model button on error card */
-  onRetryWithModel?: (message: Message, modelName: string, modelType?: string) => void
+  onRetryWithModel?: (message: Message, model: UnifiedModel) => void
   /** Message type for feedback storage key differentiation */
   feedbackMessageType?: 'original' | 'correction'
   /** Whether this is a group chat (for enabling message collapsing) */

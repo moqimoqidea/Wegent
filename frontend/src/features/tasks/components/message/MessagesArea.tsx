@@ -62,6 +62,7 @@ import CorrectionProgressIndicator, {
 import { useSocket } from '@/contexts/SocketContext'
 import type { CorrectionStage, CorrectionField } from '@/types/socket'
 import type { Model } from '../../hooks/useModelSelection'
+import type { UnifiedModel } from '@/apis/models'
 
 /**
  * Component to render a streaming message with typewriter effect.
@@ -178,7 +179,7 @@ interface MessagesAreaProps {
   ) => void
   isGroupChat?: boolean
   onRetry?: (message: Message) => void
-  onRetryWithModel?: (message: Message, modelName: string, modelType?: string) => void
+  onRetryWithModel?: (message: Message, model: UnifiedModel) => void
   // Correction mode props
   enableCorrectionMode?: boolean
   correctionModelId?: string | null
