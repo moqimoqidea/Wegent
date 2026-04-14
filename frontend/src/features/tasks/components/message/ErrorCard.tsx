@@ -22,7 +22,6 @@ import {
   ExternalLink,
   RefreshCw,
   Check,
-  Clock,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -114,7 +113,11 @@ export function ErrorCard({
   )
 
   const showNewConversation = NEW_CONVERSATION_ERROR_TYPES.has(parsedError.type)
-  const showRetry = !!onRetry && !NON_RETRYABLE_TYPES.has(parsedError.type)
+  // Show retry when: (1) type is retryable, OR (2) type supports model switch but no recommendations available
+  const showRetry =
+    !!onRetry &&
+    (!NON_RETRYABLE_TYPES.has(parsedError.type) ||
+      (MODEL_SWITCH_ERROR_TYPES.has(parsedError.type) && recommendedModels.length === 0))
 
   const hintKey = useMemo(() => {
     switch (parsedError.type) {
@@ -394,8 +397,10 @@ function ErrorCardSolutions({
             className="h-9 min-w-[44px] text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
             data-testid="error-card-retry"
           >
-            <Clock className="h-3.5 w-3.5 mr-1" />
-            {t('errors.wait_and_retry')}
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            {recommendedModels.length === 0
+              ? t('errors.retry_with_current_model')
+              : t('errors.wait_and_retry')}
           </Button>
         )}
       </div>

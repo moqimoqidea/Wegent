@@ -272,6 +272,7 @@
     "quota_hint": "Switch to an alternative model to continue",
     "rate_limit_hint": "Wait a moment, or switch to a different model",
     "wait_and_retry": "Wait and retry",
+    "retry_with_current_model": "Retry with current model",
     "card_resolved": "Resolved"
   },
   "clarification": {
