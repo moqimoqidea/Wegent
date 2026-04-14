@@ -1292,9 +1292,7 @@ class ChatNamespace(socketio.AsyncNamespace):
                 from sqlalchemy.orm.attributes import flag_modified
 
                 task_json = task.json or {}
-                labels = task_json.setdefault("metadata", {}).setdefault(
-                    "labels", {}
-                )
+                labels = task_json.setdefault("metadata", {}).setdefault("labels", {})
                 labels["modelId"] = model_id
                 labels["forceOverrideBotModel"] = "true"
                 if model_type:

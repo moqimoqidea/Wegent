@@ -39,6 +39,7 @@ jest.mock('@/hooks/useMediaQuery', () => ({
 }))
 
 jest.mock('@/features/tasks/hooks/useModelSelection', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react')
 
   const getModelKey = (model: { name: string; type?: string | null }) =>
