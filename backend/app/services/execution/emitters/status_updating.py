@@ -377,11 +377,17 @@ class StatusUpdatingEmitter(ResultEmitter):
                     f"for subtask {self._subtask_id}"
                 )
 
-            # Store classified error type in result for frontend recovery
+            # Store classified error type and HTTP status code in result for frontend recovery
             if error_code:
                 if result is None:
                     result = {}
                 result["error_type"] = error_code
+
+                from shared.utils.error_classifier import extract_http_status_code
+
+                http_code = extract_http_status_code(error_message)
+                if http_code is not None:
+                    result["error_code"] = http_code
 
             # Update subtask status to FAILED with executor info for container reuse
             await db_handler.update_subtask_status(

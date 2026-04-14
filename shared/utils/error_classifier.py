@@ -9,8 +9,9 @@ error codes that the frontend can use to display user-friendly messages
 and actionable solutions.
 """
 
+import re
 from enum import Enum
-from typing import Union
+from typing import Optional, Union
 
 
 class ChatErrorCode(str, Enum):
@@ -235,3 +236,28 @@ def classify_error(error: Union[Exception, str]) -> str:
 
     # String input — keyword matching only
     return _classify_by_message(error).value
+
+
+_HTTP_STATUS_PATTERN = re.compile(r"Error code:\s*(\d{3})")
+
+
+def extract_http_status_code(error: Union[Exception, str]) -> Optional[int]:
+    """Extract HTTP status code from an error.
+
+    Checks the exception's ``status_code`` attribute first (SDK exceptions),
+    then falls back to parsing "Error code: NNN" from the message string.
+
+    Args:
+        error: Exception instance or error message string.
+
+    Returns:
+        HTTP status code as int, or None if not available.
+    """
+    if isinstance(error, Exception):
+        status = getattr(error, "status_code", None)
+        if isinstance(status, int):
+            return status
+        error = str(error)
+
+    match = _HTTP_STATUS_PATTERN.search(error)
+    return int(match.group(1)) if match else None
