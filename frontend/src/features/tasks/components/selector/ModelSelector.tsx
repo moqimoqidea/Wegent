@@ -150,7 +150,7 @@ export default function ModelSelector({
     }
   }, [modelCategoryType])
 
-  // Sync external state with internal hook state
+  // Sync internal hook state → external state
   // This allows the component to work with both legacy and new APIs
   useEffect(() => {
     if (modelSelection.selectedModel !== externalSelectedModel) {
@@ -165,6 +165,24 @@ export default function ModelSelector({
       externalSetForceOverride(modelSelection.forceOverride)
     }
   }, [modelSelection.forceOverride, externalForceOverride, externalSetForceOverride])
+
+  // Sync external state → internal hook state
+  // When parent changes the model (e.g., retry-with-model from error card),
+  // update the internal hook state so the display text reflects the new model.
+  useEffect(() => {
+    if (
+      externalSelectedModel &&
+      modelSelection.selectedModel?.name !== externalSelectedModel.name
+    ) {
+      modelSelection.selectModel(externalSelectedModel)
+    }
+  }, [externalSelectedModel, modelSelection.selectedModel?.name, modelSelection.selectModel])
+
+  useEffect(() => {
+    if (externalForceOverride !== modelSelection.forceOverride) {
+      modelSelection.setForceOverride(externalForceOverride)
+    }
+  }, [externalForceOverride, modelSelection.forceOverride, modelSelection.setForceOverride])
 
   // Local UI state
   const [isOpen, setIsOpen] = useState(false)

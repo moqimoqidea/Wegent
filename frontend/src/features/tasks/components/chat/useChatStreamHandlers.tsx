@@ -143,10 +143,7 @@ export interface ChatStreamHandlers {
     error?: string
     subtaskId?: number
   }) => Promise<void>
-  handleRetryWithModel: (
-    message: { subtaskId?: number },
-    model: UnifiedModel
-  ) => Promise<void>
+  handleRetryWithModel: (message: { subtaskId?: number }, model: UnifiedModel) => Promise<void>
   handleCancelTask: () => Promise<void>
   stopStream: () => Promise<void>
   resetStreamingState: () => void
@@ -1092,6 +1089,9 @@ export function useChatStreamHandlers({
             t(`chat:${key}`)
           )
           toast({ variant: 'destructive', title: errorMessage })
+        } else {
+          // Refresh task detail to pick up the new model configuration from backend
+          refreshSelectedTaskDetail(false)
         }
       } catch (error) {
         console.error('[ChatStreamHandlers] RetryWithModel failed:', error)
@@ -1101,7 +1101,15 @@ export function useChatStreamHandlers({
         toast({ variant: 'destructive', title: errorMessage })
       }
     },
-    [retryMessage, selectedTaskDetail?.id, setSelectedModel, setForceOverride, t, toast]
+    [
+      retryMessage,
+      selectedTaskDetail?.id,
+      setSelectedModel,
+      setForceOverride,
+      refreshSelectedTaskDetail,
+      t,
+      toast,
+    ]
   )
 
   // Handle cancel task
