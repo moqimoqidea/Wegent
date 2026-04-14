@@ -839,12 +839,16 @@ class ChatNamespace(socketio.AsyncNamespace):
                         logger.exception(
                             f"[WS] chat:send AI trigger failed: task_id={task.id}, error={e}"
                         )
+                        from shared.utils.error_classifier import classify_error
+
+                        error_code = classify_error(e)
                         # Emit error to frontend so user sees the failure
                         await self.emit(
                             ServerEvents.CHAT_ERROR,
                             ChatErrorPayload(
                                 subtask_id=assistant_subtask.id,
                                 error=str(e),
+                                type=error_code,
                             ).model_dump(),
                             room=task_room,
                         )

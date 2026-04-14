@@ -165,6 +165,7 @@ class ResponsesAPIEventParser:
                 task_id=task_id,
                 subtask_id=subtask_id,
                 error=data.get("message", "Unknown error"),
+                error_code=data.get("code"),
                 message_id=message_id,
             )
 
@@ -401,10 +402,14 @@ class ExecutionDispatcher:
             # Try to emit error to frontend if emitter is available
             if wrapped_emitter is not None:
                 try:
+                    from shared.utils.error_classifier import classify_error
+
+                    error_code = classify_error(e)
                     await wrapped_emitter.emit_error(
                         task_id=request.task_id,
                         subtask_id=request.subtask_id,
                         error=str(e),
+                        error_code=error_code,
                     )
                 except Exception as emit_error:
                     logger.error(

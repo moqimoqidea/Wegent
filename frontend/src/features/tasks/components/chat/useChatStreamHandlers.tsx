@@ -140,6 +140,11 @@ export interface ChatStreamHandlers {
     error?: string
     subtaskId?: number
   }) => Promise<void>
+  handleRetryWithModel: (
+    message: { subtaskId?: number },
+    modelName: string,
+    modelType?: string
+  ) => Promise<void>
   handleCancelTask: () => Promise<void>
   stopStream: () => Promise<void>
   resetStreamingState: () => void
@@ -1060,6 +1065,37 @@ export function useChatStreamHandlers({
     [retryMessage, selectedTaskDetail?.id, selectedModel, forceOverride, t, toast, traceAction]
   )
 
+  // Handle retry with a specific model (from error card recommendation)
+  const handleRetryWithModel = useCallback(
+    async (message: { subtaskId?: number }, modelName: string, modelType?: string) => {
+      if (!message.subtaskId || !selectedTaskDetail?.id) return
+
+      try {
+        const result = await retryMessage(
+          selectedTaskDetail.id,
+          message.subtaskId,
+          modelName,
+          modelType,
+          true // forceOverride = true to permanently switch in task metadata
+        )
+
+        if (result.error) {
+          const errorMessage = getErrorDisplayMessage(result.error, (key: string) =>
+            t(`chat:${key}`)
+          )
+          toast({ variant: 'destructive', title: errorMessage })
+        }
+      } catch (error) {
+        console.error('[ChatStreamHandlers] RetryWithModel failed:', error)
+        const errorMessage = getErrorDisplayMessage(error as Error, (key: string) =>
+          t(`chat:${key}`)
+        )
+        toast({ variant: 'destructive', title: errorMessage })
+      }
+    },
+    [retryMessage, selectedTaskDetail?.id, t, toast]
+  )
+
   // Handle cancel task
   const handleCancelTask = useCallback(async () => {
     if (!selectedTaskDetail?.id || isCancelling) return
@@ -1127,6 +1163,7 @@ export function useChatStreamHandlers({
     handleSendMessage,
     handleSendMessageWithModel,
     handleRetry,
+    handleRetryWithModel,
     handleCancelTask,
     stopStream,
     resetStreamingState,

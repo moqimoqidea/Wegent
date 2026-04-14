@@ -639,6 +639,9 @@ function ChatAreaContent({
   const handleRetryRef = useRef(streamHandlers.handleRetry)
   handleRetryRef.current = streamHandlers.handleRetry
 
+  const handleRetryWithModelRef = useRef(streamHandlers.handleRetryWithModel)
+  handleRetryWithModelRef.current = streamHandlers.handleRetryWithModel
+
   const setTaskInputMessage = chatState.setTaskInputMessage
   const setSelectedContexts = chatState.setSelectedContexts
   const resetAttachment = chatState.resetAttachment
@@ -726,6 +729,17 @@ function ChatAreaContent({
   const handleRetryFromMessagesArea = useCallback(
     (message: import('../message/MessageBubble').Message) => {
       void handleRetryRef.current(message)
+    },
+    []
+  )
+
+  const handleRetryWithModelFromMessagesArea = useCallback(
+    (
+      message: import('../message/MessageBubble').Message,
+      modelName: string,
+      modelType?: string
+    ) => {
+      void handleRetryWithModelRef.current(message, modelName, modelType)
     },
     []
   )
@@ -1146,6 +1160,7 @@ function ChatAreaContent({
               onSendMessageWithModel={handleSendMessageWithModelFromChild}
               isGroupChat={selectedTaskDetail?.is_group_chat || false}
               onRetry={handleRetryFromMessagesArea}
+              onRetryWithModel={handleRetryWithModelFromMessagesArea}
               enableCorrectionMode={chatState.enableCorrectionMode}
               correctionModelId={chatState.correctionModelId}
               enableCorrectionWebSearch={chatState.enableCorrectionWebSearch}

@@ -178,6 +178,7 @@ interface MessagesAreaProps {
   ) => void
   isGroupChat?: boolean
   onRetry?: (message: Message) => void
+  onRetryWithModel?: (message: Message, modelName: string, modelType?: string) => void
   // Correction mode props
   enableCorrectionMode?: boolean
   correctionModelId?: string | null
@@ -215,6 +216,7 @@ function MessagesArea({
   onSendMessageWithModel,
   isGroupChat = false,
   onRetry,
+  onRetryWithModel,
   enableCorrectionMode = false,
   correctionModelId = null,
   enableCorrectionWebSearch = false,
@@ -1304,6 +1306,7 @@ function MessagesArea({
                   onAskUserSubmit={handleAskUserSubmit}
                   isCurrentUserMessage={isCurrentUserMessage}
                   onRetry={onRetry}
+                  onRetryWithModel={onRetryWithModel}
                   isGroupChat={isGroupChat}
                   isPendingConfirmation={isPendingConfirmation}
                   onContextReselect={onContextReselect}

@@ -1,0 +1,23 @@
+# Error model recommendations configuration.
+# Maps error types to suggested alternative models.
+# Models are filtered at runtime against the user's available models.
+
+context_length_exceeded:
+  description: "Models with large context windows"
+  models:
+    - gemini-3.1-pro
+    - claude-sonnet-4-6
+    - gemini-2.5-flash
+
+quota_exceeded:
+  description: "Free or alternative models"
+  models:
+    - moonshot-kimi-k2.5
+    - minimax-m2.7
+    - deepseek-chat
+
+rate_limit:
+  description: "Alternative models to avoid rate limits"
+  models:
+    - deepseek-chat
+    - gemini-2.5-flash

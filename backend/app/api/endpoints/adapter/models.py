@@ -860,3 +860,62 @@ def get_compatible_models(
             continue
 
     return {"models": compatible_models}
+
+
+@router.get("/error-recommendations")
+def get_error_recommendations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(security.get_current_user),
+):
+    """Get model recommendations for specific error types.
+
+    Reads from YAML config and filters against user's available models.
+    """
+    import os
+
+    import yaml
+
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+        "config",
+        "error_model_recommendations.yaml",
+    )
+
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except Exception:
+        logger.warning("Failed to load error model recommendations config")
+        return {"data": {}}
+
+    # Get user's available models for filtering
+    available_models = model_aggregation_service.list_available_models(
+        db=db,
+        current_user=current_user,
+        scope="all",
+        model_category_type="llm",
+    )
+    available_names = {m.name for m in available_models}
+
+    result = {}
+    for error_type, entry in config.items():
+        if not isinstance(entry, dict):
+            continue
+        configured_models = entry.get("models", [])
+        # Filter to models the user actually has access to
+        matched = [
+            next(
+                (m.to_dict() for m in available_models if m.name == name),
+                None,
+            )
+            for name in configured_models
+            if name in available_names
+        ]
+        matched = [m for m in matched if m is not None]
+        if matched:
+            result[error_type] = {
+                "description": entry.get("description", ""),
+                "models": matched,
+            }
+
+    return {"data": result}

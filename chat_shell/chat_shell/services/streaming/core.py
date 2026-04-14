@@ -427,8 +427,11 @@ class StreamingCore:
             self.state.subtask_id,
         )
 
+        from shared.utils.error_classifier import classify_error
+
         error_msg = str(error)
-        await self.emitter.error(error_msg)
+        error_code = classify_error(error)
+        await self.emitter.error(error_msg, code=error_code)
 
         # Emit done event with error content
         await self.emitter.done(

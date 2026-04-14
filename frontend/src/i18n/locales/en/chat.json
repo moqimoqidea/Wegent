@@ -257,7 +257,22 @@
     "container_oom": "Executor out of memory: Please start a new conversation to retry, or contact administrator to increase memory allocation",
     "container_error": "Executor error: Container has stopped running. Please start a new conversation to retry",
     "generic_error": "Request failed: Unknown error, please try again or contact administrator",
-    "copy_error": "Copy error details"
+    "copy_error": "Copy error details",
+    "context_length_exceeded": "The conversation is too long for this model's context window",
+    "quota_exceeded": "The model's usage quota has been exhausted",
+    "rate_limit": "Too many requests. Please wait a moment before trying again",
+    "forbidden": "Access denied: You do not have permission to use this resource",
+    "error_details": "Error Details",
+    "copy_diagnostic": "Copy diagnostic info for developer",
+    "copy_diagnostic_success": "Diagnostic info copied to clipboard",
+    "solutions_title": "Recommended Solutions",
+    "switch_model_retry": "Switch to {{model}} and retry",
+    "new_conversation": "Start new conversation",
+    "context_length_hint": "Try a model with a larger context window, or start a fresh conversation",
+    "quota_hint": "Switch to an alternative model to continue",
+    "rate_limit_hint": "Wait a moment, or switch to a different model",
+    "wait_and_retry": "Wait and retry",
+    "card_resolved": "Resolved"
   },
   "clarification": {
     "title": "Smart Follow-up",

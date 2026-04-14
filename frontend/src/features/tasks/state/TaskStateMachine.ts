@@ -60,6 +60,7 @@ export interface UnifiedMessage {
   subtaskId?: number
   messageId?: number
   error?: string
+  errorType?: string
   botName?: string
   senderUserName?: string
   senderUserId?: number
@@ -162,7 +163,7 @@ type Event =
       hasError?: boolean
       errorMessage?: string
     }
-  | { type: 'CHAT_ERROR'; subtaskId: number; error: string; messageId?: number }
+  | { type: 'CHAT_ERROR'; subtaskId: number; error: string; messageId?: number; errorType?: string }
   | { type: 'CHAT_CANCELLED'; subtaskId: number }
   | { type: 'LEAVE' }
 
@@ -330,8 +331,8 @@ export class TaskStateMachine {
   /**
    * Handle chat:error event
    */
-  handleChatError(subtaskId: number, error: string, messageId?: number): void {
-    this.dispatch({ type: 'CHAT_ERROR', subtaskId, error, messageId })
+  handleChatError(subtaskId: number, error: string, messageId?: number, errorType?: string): void {
+    this.dispatch({ type: 'CHAT_ERROR', subtaskId, error, messageId, errorType })
   }
 
   /**
@@ -989,6 +990,11 @@ export class TaskStateMachine {
         ? existingMessage?.error
         : subtask.error_message || undefined
 
+      // Recover error_type from result JSON (set by backend on FAILED subtasks)
+      const errorTypeField = hasFrontendError
+        ? existingMessage?.errorType
+        : ((subtask.result as Record<string, unknown>)?.error_type as string | undefined)
+
       messages.set(messageId, {
         id: messageId,
         type: isUserMessage ? 'user' : 'ai',
@@ -1008,6 +1014,7 @@ export class TaskStateMachine {
         subtaskStatus: subtask.status,
         result: subtask.result as UnifiedMessage['result'],
         error: errorField,
+        errorType: errorTypeField,
       })
     }
 
@@ -1361,6 +1368,7 @@ export class TaskStateMachine {
       status: 'error',
       subtaskStatus: 'FAILED',
       error: event.error,
+      errorType: event.errorType,
       messageId: event.messageId ?? existingMessage.messageId,
     })
 
