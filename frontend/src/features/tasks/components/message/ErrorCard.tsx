@@ -53,29 +53,11 @@ export interface ErrorCardProps {
   onRetryWithModel?: (message: Message, model: UnifiedModel) => void
 }
 
-// Error types that support model switching as a solution
-const MODEL_SWITCH_ERROR_TYPES = new Set<ErrorType>([
-  'context_length_exceeded',
-  'quota_exceeded',
-  'rate_limit',
-  'llm_error',
-])
-
 // Error types that should show "new conversation" button
 const NEW_CONVERSATION_ERROR_TYPES = new Set<ErrorType>([
   'context_length_exceeded',
   'container_oom',
   'container_error',
-])
-
-// Error types that are not retryable
-const NON_RETRYABLE_TYPES = new Set<ErrorType>([
-  'context_length_exceeded',
-  'quota_exceeded',
-  'container_oom',
-  'container_error',
-  'forbidden',
-  'llm_unsupported',
 ])
 
 export function ErrorCard({
@@ -130,17 +112,12 @@ export function ErrorCard({
   )
 
   const recommendedModels = useMemo(
-    () =>
-      MODEL_SWITCH_ERROR_TYPES.has(parsedError.type) ? getRecommendedModels(parsedError.type) : [],
+    () => getRecommendedModels(parsedError.type),
     [parsedError.type, getRecommendedModels]
   )
 
   const showNewConversation = NEW_CONVERSATION_ERROR_TYPES.has(parsedError.type)
-  // Show retry when: (1) type is retryable, OR (2) type supports model switch but no recommendations available
-  const showRetry =
-    !!onRetry &&
-    (!NON_RETRYABLE_TYPES.has(parsedError.type) ||
-      (MODEL_SWITCH_ERROR_TYPES.has(parsedError.type) && recommendedModels.length === 0))
+  const showRetry = !!onRetry
 
   const hintKey = useMemo(() => {
     switch (parsedError.type) {
@@ -150,6 +127,18 @@ export function ErrorCard({
         return t('errors.quota_hint')
       case 'rate_limit':
         return t('errors.rate_limit_hint')
+      case 'content_filter':
+        return t('errors.content_filter_hint')
+      case 'provider_error':
+        return t('errors.provider_error_hint')
+      case 'image_too_large':
+        return t('errors.image_too_large_hint')
+      case 'model_protocol_error':
+        return t('errors.model_protocol_error_hint')
+      case 'invalid_role':
+        return t('errors.invalid_role_hint')
+      case 'permission_denied':
+        return t('errors.permission_denied_hint')
       default:
         return null
     }

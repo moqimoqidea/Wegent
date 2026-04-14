@@ -30,6 +30,12 @@ class ChatErrorCode(str, Enum):
     FORBIDDEN = "forbidden"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     INVALID_PARAMETER = "invalid_parameter"
+    CONTENT_FILTER = "content_filter"
+    PROVIDER_ERROR = "provider_error"
+    IMAGE_TOO_LARGE = "image_too_large"
+    MODEL_PROTOCOL_ERROR = "model_protocol_error"
+    INVALID_ROLE = "invalid_role"
+    PERMISSION_DENIED = "permission_denied"
     GENERIC_ERROR = "generic_error"
 
 
@@ -52,6 +58,48 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "maximum number of tokens",
         ],
     ),
+    # Content filter / safety moderation (check before generic 400)
+    (
+        ChatErrorCode.CONTENT_FILTER,
+        [
+            "data_inspection_failed",
+            "inappropriate content",
+            "content filter",
+            "content management",
+            "content_policy",
+            "contentfilter",
+            "risky content",
+            "content_filtering_policy",
+            "responsibleaipolicy",
+            "resp_safety_modify_answer",
+        ],
+    ),
+    # Image too large (check before generic payload errors)
+    (
+        ChatErrorCode.IMAGE_TOO_LARGE,
+        [
+            "image exceeds",
+            "image too large",
+            "image size exceeds",
+        ],
+    ),
+    # Invalid role in messages (model protocol mismatch)
+    (
+        ChatErrorCode.INVALID_ROLE,
+        [
+            "invalid role",
+        ],
+    ),
+    # Model protocol error (model ID not supported by provider)
+    (
+        ChatErrorCode.MODEL_PROTOCOL_ERROR,
+        [
+            "invalid model id",
+            "only claude",
+            "only thudm",
+            "only moonshot",
+        ],
+    ),
     # Container OOM
     (
         ChatErrorCode.CONTAINER_OOM,
@@ -61,7 +109,7 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "memory allocation",
         ],
     ),
-    # Container errors
+    # Container errors (includes Claude Code shell disconnections)
     (
         ChatErrorCode.CONTAINER_ERROR,
         [
@@ -72,12 +120,15 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "no ports mapped",
             "crashed unexpectedly",
             "exit code",
+            "device disconnected",
+            "not logged in",
         ],
     ),
-    # Quota exceeded (check before rate_limit — more specific)
+    # Quota exceeded (check before rate_limit and permission — more specific)
     (
         ChatErrorCode.QUOTA_EXCEEDED,
         [
+            "商业付费模型额度已用完",
             "quota exceeded",
             "insufficient_quota",
             "billing",
@@ -98,6 +149,17 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "throttl",
         ],
     ),
+    # Permission denied (model access restrictions)
+    (
+        ChatErrorCode.PERMISSION_DENIED,
+        [
+            "permission_denied",
+            "permission denied",
+            "permission_error",
+            "无权限调用此模型",
+            "禁止使用外部模型",
+        ],
+    ),
     # Forbidden / auth errors
     (
         ChatErrorCode.FORBIDDEN,
@@ -106,6 +168,14 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "not allowed",
             "unauthorized",
             "403",
+        ],
+    ),
+    # Provider error (model provider service wrapping)
+    (
+        ChatErrorCode.PROVIDER_ERROR,
+        [
+            "error from provider",
+            "upstream error",
         ],
     ),
     # Model unsupported (multi-modal, incompatible request)
@@ -150,7 +220,7 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "payload too large",
         ],
     ),
-    # Network errors
+    # Network errors (includes upstream connection issues)
     (
         ChatErrorCode.NETWORK_ERROR,
         [
@@ -159,14 +229,19 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "connection reset",
             "connection error",
             "not connected",
+            "peer closed connection",
+            "upstream connection interrupted",
+            "超时",
         ],
     ),
-    # Timeout
+    # Timeout (includes gateway timeouts)
     (
         ChatErrorCode.TIMEOUT_ERROR,
         [
             "timeout",
             "timed out",
+            "504 gateway",
+            "502 bad gateway",
         ],
     ),
 ]

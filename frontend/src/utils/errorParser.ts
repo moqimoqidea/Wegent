@@ -22,6 +22,12 @@ export type ErrorType =
   | 'forbidden'
   | 'container_oom'
   | 'container_error'
+  | 'content_filter'
+  | 'provider_error'
+  | 'image_too_large'
+  | 'model_protocol_error'
+  | 'invalid_role'
+  | 'permission_denied'
   | 'generic_error'
 
 export interface ParsedError {
@@ -45,6 +51,12 @@ const VALID_BACKEND_TYPES = new Set<string>([
   'forbidden',
   'payload_too_large',
   'invalid_parameter',
+  'content_filter',
+  'provider_error',
+  'image_too_large',
+  'model_protocol_error',
+  'invalid_role',
+  'permission_denied',
   'generic_error',
 ])
 
@@ -62,24 +74,13 @@ const BACKEND_TYPE_MAP: Record<string, ErrorType> = {
   forbidden: 'forbidden',
   payload_too_large: 'payload_too_large',
   invalid_parameter: 'invalid_parameter',
+  content_filter: 'content_filter',
+  provider_error: 'provider_error',
+  image_too_large: 'image_too_large',
+  model_protocol_error: 'model_protocol_error',
+  invalid_role: 'invalid_role',
+  permission_denied: 'permission_denied',
   generic_error: 'generic_error',
-}
-
-// Retryability by error type
-const RETRYABLE_MAP: Record<ErrorType, boolean> = {
-  context_length_exceeded: false,
-  quota_exceeded: false,
-  rate_limit: true,
-  payload_too_large: true,
-  network_error: true,
-  timeout_error: true,
-  llm_error: true,
-  llm_unsupported: false,
-  invalid_parameter: true,
-  forbidden: false,
-  container_oom: false,
-  container_error: false,
-  generic_error: true,
 }
 
 /**
@@ -99,7 +100,7 @@ export function parseError(error: Error | string, backendType?: string): ParsedE
       type,
       message: errorMessage,
       originalError: errorMessage,
-      retryable: RETRYABLE_MAP[type],
+      retryable: true,
     }
   }
 
@@ -127,6 +128,46 @@ function classifyByMessage(errorMessage: string): ParsedError {
     return buildResult('context_length_exceeded', errorMessage)
   }
 
+  // Content filter / safety moderation (check before generic 400 errors)
+  if (
+    lowerMessage.includes('data_inspection_failed') ||
+    lowerMessage.includes('inappropriate content') ||
+    lowerMessage.includes('content filter') ||
+    lowerMessage.includes('content management') ||
+    lowerMessage.includes('content_policy') ||
+    lowerMessage.includes('contentfilter') ||
+    lowerMessage.includes('risky content') ||
+    lowerMessage.includes('content_filtering_policy') ||
+    lowerMessage.includes('responsibleaipolicy') ||
+    lowerMessage.includes('resp_safety_modify_answer')
+  ) {
+    return buildResult('content_filter', errorMessage)
+  }
+
+  // Image too large (check before generic payload errors)
+  if (
+    lowerMessage.includes('image exceeds') ||
+    lowerMessage.includes('image too large') ||
+    lowerMessage.includes('image size exceeds')
+  ) {
+    return buildResult('image_too_large', errorMessage)
+  }
+
+  // Invalid role in messages (model protocol mismatch)
+  if (lowerMessage.includes('invalid role')) {
+    return buildResult('invalid_role', errorMessage)
+  }
+
+  // Model protocol error (model ID not supported by provider)
+  if (
+    lowerMessage.includes('invalid model id') ||
+    (lowerMessage.includes('only claude') ||
+      lowerMessage.includes('only thudm') ||
+      lowerMessage.includes('only moonshot'))
+  ) {
+    return buildResult('model_protocol_error', errorMessage)
+  }
+
   // Container OOM
   if (
     lowerMessage.includes('out of memory') ||
@@ -136,7 +177,7 @@ function classifyByMessage(errorMessage: string): ParsedError {
     return buildResult('container_oom', errorMessage)
   }
 
-  // Container/executor errors
+  // Container/executor errors (includes Claude Code shell disconnections)
   if (
     lowerMessage.includes('container') ||
     lowerMessage.includes('executor') ||
@@ -144,13 +185,16 @@ function classifyByMessage(errorMessage: string): ParsedError {
     lowerMessage.includes('disappeared unexpectedly') ||
     lowerMessage.includes('no ports mapped') ||
     lowerMessage.includes('crashed unexpectedly') ||
-    lowerMessage.includes('exit code')
+    lowerMessage.includes('exit code') ||
+    lowerMessage.includes('device disconnected') ||
+    lowerMessage.includes('not logged in')
   ) {
     return buildResult('container_error', errorMessage)
   }
 
-  // Quota exceeded (check before rate_limit — more specific)
+  // Quota exceeded (check before rate_limit and permission — more specific)
   if (
+    lowerMessage.includes('商业付费模型额度已用完') ||
     lowerMessage.includes('quota exceeded') ||
     lowerMessage.includes('insufficient_quota') ||
     lowerMessage.includes('billing') ||
@@ -172,6 +216,17 @@ function classifyByMessage(errorMessage: string): ParsedError {
     return buildResult('rate_limit', errorMessage)
   }
 
+  // Permission denied (model access restrictions, check before generic forbidden)
+  if (
+    lowerMessage.includes('permission_denied') ||
+    lowerMessage.includes('permission denied') ||
+    lowerMessage.includes('permission_error') ||
+    lowerMessage.includes('无权限调用此模型') ||
+    lowerMessage.includes('禁止使用外部模型')
+  ) {
+    return buildResult('permission_denied', errorMessage)
+  }
+
   // Forbidden/unauthorized
   if (
     lowerMessage.includes('forbidden') ||
@@ -180,6 +235,14 @@ function classifyByMessage(errorMessage: string): ParsedError {
     lowerMessage.includes('403')
   ) {
     return buildResult('forbidden', errorMessage)
+  }
+
+  // Provider error (model provider service wrapping)
+  if (
+    lowerMessage.includes('error from provider') ||
+    lowerMessage.includes('upstream error')
+  ) {
+    return buildResult('provider_error', errorMessage)
   }
 
   // Model unsupported (multi-modal, incompatibility)
@@ -219,19 +282,27 @@ function classifyByMessage(errorMessage: string): ParsedError {
     return buildResult('payload_too_large', errorMessage)
   }
 
-  // Network errors
+  // Network errors (includes upstream connection issues)
   if (
     lowerMessage.includes('network') ||
     lowerMessage.includes('fetch') ||
     lowerMessage.includes('connection') ||
     lowerMessage.includes('not connected') ||
-    lowerMessage.includes('websocket')
+    lowerMessage.includes('websocket') ||
+    lowerMessage.includes('peer closed connection') ||
+    lowerMessage.includes('upstream connection interrupted') ||
+    lowerMessage.includes('超时')
   ) {
     return buildResult('network_error', errorMessage)
   }
 
-  // Timeout
-  if (lowerMessage.includes('timeout') || lowerMessage.includes('timed out')) {
+  // Timeout (includes gateway timeouts)
+  if (
+    lowerMessage.includes('timeout') ||
+    lowerMessage.includes('timed out') ||
+    lowerMessage.includes('504 gateway') ||
+    lowerMessage.includes('502 bad gateway')
+  ) {
     return buildResult('timeout_error', errorMessage)
   }
 
@@ -244,7 +315,7 @@ function buildResult(type: ErrorType, errorMessage: string): ParsedError {
     type,
     message: errorMessage,
     originalError: errorMessage,
-    retryable: RETRYABLE_MAP[type],
+    retryable: true,
   }
 }
 
@@ -288,6 +359,18 @@ export function getUserFriendlyErrorMessage(
       return t('errors.network_error')
     case 'timeout_error':
       return t('errors.timeout_error')
+    case 'content_filter':
+      return t('errors.content_filter')
+    case 'provider_error':
+      return t('errors.provider_error')
+    case 'image_too_large':
+      return t('errors.image_too_large')
+    case 'model_protocol_error':
+      return t('errors.model_protocol_error')
+    case 'invalid_role':
+      return t('errors.invalid_role')
+    case 'permission_denied':
+      return t('errors.permission_denied')
     default:
       return t('errors.generic_error')
   }
