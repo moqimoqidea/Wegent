@@ -120,14 +120,14 @@ describe('errorParser', () => {
 
       it('should detect api rate limit errors', () => {
         const result = parseError('api rate limit exceeded')
-        expect(result.type).toBe('llm_error')
+        expect(result.type).toBe('rate_limit')
         expect(result.retryable).toBe(true)
       })
 
       it('should detect quota exceeded errors', () => {
         const result = parseError('quota exceeded for this model')
-        expect(result.type).toBe('llm_error')
-        expect(result.retryable).toBe(true)
+        expect(result.type).toBe('quota_exceeded')
+        expect(result.retryable).toBe(false)
       })
 
       it('should detect token limit errors', () => {
