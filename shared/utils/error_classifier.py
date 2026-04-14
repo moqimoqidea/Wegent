@@ -9,6 +9,7 @@ error codes that the frontend can use to display user-friendly messages
 and actionable solutions.
 """
 
+import json
 import re
 from enum import Enum
 from typing import Optional, Union
@@ -261,3 +262,25 @@ def extract_http_status_code(error: Union[Exception, str]) -> Optional[int]:
 
     match = _HTTP_STATUS_PATTERN.search(error)
     return int(match.group(1)) if match else None
+
+
+def format_error_message(error: Exception) -> str:
+    """Format an exception into an error message string.
+
+    LLM SDK exceptions (Anthropic, OpenAI) store the HTTP response body
+    as a parsed Python dict in ``error.body``.  Their ``__str__`` embeds
+    that dict with ``f"Error code: {status} - {body}"``, producing Python
+    repr (single quotes) instead of valid JSON.
+
+    This function reconstructs the message with ``json.dumps`` so the
+    stored error retains the original JSON form.
+
+    For non-SDK exceptions or exceptions without a ``body`` attribute,
+    falls back to ``str(error)``.
+    """
+    body = getattr(error, "body", None)
+    if isinstance(body, (dict, list)):
+        status_code = getattr(error, "status_code", None)
+        if status_code is not None:
+            return f"Error code: {status_code} - {json.dumps(body, ensure_ascii=False)}"
+    return str(error)

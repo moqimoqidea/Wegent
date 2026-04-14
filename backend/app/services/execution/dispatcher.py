@@ -402,13 +402,16 @@ class ExecutionDispatcher:
             # Try to emit error to frontend if emitter is available
             if wrapped_emitter is not None:
                 try:
-                    from shared.utils.error_classifier import classify_error
+                    from shared.utils.error_classifier import (
+                        classify_error,
+                        format_error_message,
+                    )
 
                     error_code = classify_error(e)
                     await wrapped_emitter.emit_error(
                         task_id=request.task_id,
                         subtask_id=request.subtask_id,
-                        error=str(e),
+                        error=format_error_message(e),
                         error_code=error_code,
                     )
                 except Exception as emit_error:
