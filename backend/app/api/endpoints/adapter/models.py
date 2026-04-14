@@ -266,6 +266,138 @@ def bulk_create_models(
     }
 
 
+@router.get("/compatible")
+def get_compatible_models(
+    shell_type: str = Query(..., description="Shell type (Agno or ClaudeCode)"),
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get models compatible with a specific shell type
+
+    Parameters:
+    - shell_type: "Agno" or "ClaudeCode"
+
+    Response:
+    {
+      "models": [
+        {"name": "my-gpt4-model"},
+        {"name": "my-gpt4o-model"}
+      ]
+    }
+    """
+    from app.schemas.kind import Model as ModelCRD
+
+    # Query all active Model CRDs from kinds table
+    models = (
+        db.query(Kind)
+        .filter(
+            Kind.user_id == current_user.id,
+            Kind.kind == "Model",
+            Kind.namespace == "default",
+            Kind.is_active == True,
+        )
+        .all()
+    )
+
+    compatible_models = []
+
+    for model_kind in models:
+        try:
+            if not model_kind.json:
+                continue
+            model_crd = ModelCRD.model_validate(model_kind.json)
+            model_config = model_crd.spec.modelConfig
+            if isinstance(model_config, dict):
+                env = model_config.get("env", {})
+                model_type = env.get("model", "")
+
+                # Filter compatible models
+                # Agno supports OpenAI, Claude and Gemini models
+                if shell_type == "Agno" and model_type in [
+                    "openai",
+                    "claude",
+                    "gemini",
+                ]:
+                    compatible_models.append({"name": model_kind.name})
+                elif shell_type == "ClaudeCode" and model_type == "claude":
+                    compatible_models.append({"name": model_kind.name})
+        except Exception as e:
+            logger.warning(f"Failed to parse model {model_kind.name}: {e}")
+            continue
+
+    return {"models": compatible_models}
+
+
+@router.get("/error-recommendations")
+def get_error_recommendations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(security.get_current_user),
+):
+    """Get model recommendations for specific error types.
+
+    Reads from ERROR_MODEL_RECOMMENDATIONS env var and filters against
+    public models only (platform-level recommendations).
+
+    Returns empty data on any failure (missing env var, invalid JSON,
+    no matching models) — the frontend falls back to a simple retry button.
+    """
+    import json
+
+    from app.core.config import settings
+
+    raw = settings.ERROR_MODEL_RECOMMENDATIONS
+    if not raw:
+        return {"data": {}}
+
+    try:
+        config = json.loads(raw)
+        if not isinstance(config, dict):
+            return {"data": {}}
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("ERROR_MODEL_RECOMMENDATIONS is not valid JSON")
+        return {"data": {}}
+
+    # Use only public models (user_id=0) — platform-level recommendations
+    public_models = public_model_service.get_models(
+        db=db, skip=0, limit=1000, current_user=current_user
+    )
+    public_by_name = {m["name"]: m for m in public_models}
+
+    result = {}
+    for error_type, entry in config.items():
+        if not isinstance(entry, dict):
+            continue
+        configured_names = entry.get("models", [])
+        if not isinstance(configured_names, list):
+            continue
+        matched = [
+            _public_model_to_recommendation(public_by_name[name])
+            for name in configured_names
+            if name in public_by_name
+        ]
+        if matched:
+            result[error_type] = {
+                "description": entry.get("description", ""),
+                "models": matched,
+            }
+
+    return {"data": result}
+
+
+def _public_model_to_recommendation(model: dict) -> dict:
+    """Convert a public model dict to the UnifiedModel shape expected by the frontend."""
+    return {
+        "name": model["name"],
+        "type": "public",
+        "displayName": model.get("displayName"),
+        "provider": model.get("provider"),
+        "modelId": model.get("model_id"),
+        "modelCategoryType": model.get("model_category_type", "llm"),
+        "isAdvanced": model.get("is_advanced", False),
+    }
+
+
 @router.get("/{model_id}", response_model=ModelDetail)
 def get_model(
     model_id: int,
@@ -797,66 +929,3 @@ def fetch_available_models(
     except Exception as e:
         logger.error(f"Unexpected error fetching models from {provider_type}: {str(e)}")
         return {"success": False, "message": str(e), "models": []}
-
-
-@router.get("/compatible")
-def get_compatible_models(
-    shell_type: str = Query(..., description="Shell type (Agno or ClaudeCode)"),
-    current_user: User = Depends(security.get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Get models compatible with a specific shell type
-
-    Parameters:
-    - shell_type: "Agno" or "ClaudeCode"
-
-    Response:
-    {
-      "models": [
-        {"name": "my-gpt4-model"},
-        {"name": "my-gpt4o-model"}
-      ]
-    }
-    """
-    from app.schemas.kind import Model as ModelCRD
-
-    # Query all active Model CRDs from kinds table
-    models = (
-        db.query(Kind)
-        .filter(
-            Kind.user_id == current_user.id,
-            Kind.kind == "Model",
-            Kind.namespace == "default",
-            Kind.is_active == True,
-        )
-        .all()
-    )
-
-    compatible_models = []
-
-    for model_kind in models:
-        try:
-            if not model_kind.json:
-                continue
-            model_crd = ModelCRD.model_validate(model_kind.json)
-            model_config = model_crd.spec.modelConfig
-            if isinstance(model_config, dict):
-                env = model_config.get("env", {})
-                model_type = env.get("model", "")
-
-                # Filter compatible models
-                # Agno supports OpenAI, Claude and Gemini models
-                if shell_type == "Agno" and model_type in [
-                    "openai",
-                    "claude",
-                    "gemini",
-                ]:
-                    compatible_models.append({"name": model_kind.name})
-                elif shell_type == "ClaudeCode" and model_type == "claude":
-                    compatible_models.append({"name": model_kind.name})
-        except Exception as e:
-            logger.warning(f"Failed to parse model {model_kind.name}: {e}")
-            continue
-
-    return {"models": compatible_models}

@@ -839,12 +839,16 @@ class ChatNamespace(socketio.AsyncNamespace):
                         logger.exception(
                             f"[WS] chat:send AI trigger failed: task_id={task.id}, error={e}"
                         )
+                        from shared.utils.error_classifier import classify_error
+
+                        error_code = classify_error(e)
                         # Emit error to frontend so user sees the failure
                         await self.emit(
                             ServerEvents.CHAT_ERROR,
                             ChatErrorPayload(
                                 subtask_id=assistant_subtask.id,
                                 error=str(e),
+                                type=error_code,
                             ).model_dump(),
                             room=task_room,
                         )
@@ -1280,6 +1284,29 @@ class ChatNamespace(socketio.AsyncNamespace):
                         f"[WS] chat:retry use_model_override=False, no task metadata model, "
                         f"will use bot's default model"
                     )
+
+            # Update task labels with the new model before triggering execution.
+            # build_execution_request reads model from task.json.metadata.labels,
+            # so we must persist the new model here (same as normal send flow).
+            if model_id:
+                from sqlalchemy.orm.attributes import flag_modified
+
+                task_json = task.json or {}
+                labels = task_json.setdefault("metadata", {}).setdefault(
+                    "labels", {}
+                )
+                labels["modelId"] = model_id
+                labels["forceOverrideBotModel"] = "true"
+                if model_type:
+                    labels["forceOverrideBotModelType"] = model_type
+                task.json = task_json
+                flag_modified(task, "json")
+                db.commit()
+                db.refresh(task)
+                logger.info(
+                    f"[WS] chat:retry updated task labels: modelId={model_id}, "
+                    f"modelType={model_type}"
+                )
 
             # Build payload for AI trigger (reuse user message content and model override)
             # If model_id exists, use it; otherwise, use None to let the bot use its default model
