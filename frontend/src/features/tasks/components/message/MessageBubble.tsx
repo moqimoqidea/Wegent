@@ -172,9 +172,12 @@ export interface MessageBubbleProps {
    */
   isCurrentUserMessage?: boolean
   /** Callback when user clicks retry button for failed messages */
-  onRetry?: (message: Message) => void
+  onRetry?: (message: Message) => boolean | void | Promise<boolean | void>
   /** Callback when user clicks a recommended model button on error card */
-  onRetryWithModel?: (message: Message, model: UnifiedModel) => void
+  onRetryWithModel?: (
+    message: Message,
+    model: UnifiedModel
+  ) => boolean | void | Promise<boolean | void>
   /** Message type for feedback storage key differentiation */
   feedbackMessageType?: 'original' | 'correction'
   /** Whether this is a group chat (for enabling message collapsing) */

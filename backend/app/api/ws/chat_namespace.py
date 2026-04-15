@@ -1308,7 +1308,7 @@ class ChatNamespace(socketio.AsyncNamespace):
                     f"[WS] chat:retry updated task labels: modelId={model_id}, "
                     f"modelType={model_type}"
                 )
-            elif use_model_override:
+            elif payload.use_model_override:
                 # "Default Model" retry: clear any stale override labels so
                 # build_execution_request falls back to the bot's default model.
                 task_json = task.json or {}

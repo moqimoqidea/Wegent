@@ -178,8 +178,11 @@ interface MessagesAreaProps {
     existingContexts?: import('@/types/api').SubtaskContextBrief[]
   ) => void
   isGroupChat?: boolean
-  onRetry?: (message: Message) => void
-  onRetryWithModel?: (message: Message, model: UnifiedModel) => void
+  onRetry?: (message: Message) => boolean | void | Promise<boolean | void>
+  onRetryWithModel?: (
+    message: Message,
+    model: UnifiedModel
+  ) => boolean | void | Promise<boolean | void>
   // Correction mode props
   enableCorrectionMode?: boolean
   correctionModelId?: string | null

@@ -49,8 +49,41 @@ export interface ErrorCardProps {
   message: Message
   selectedTeam?: Team | null
   isLastErrorMessage: boolean
-  onRetry?: (message: Message) => void
-  onRetryWithModel?: (message: Message, model: UnifiedModel) => void
+  onRetry?: (message: Message) => boolean | void | Promise<boolean | void>
+  onRetryWithModel?: (
+    message: Message,
+    model: UnifiedModel
+  ) => boolean | void | Promise<boolean | void>
+}
+
+function isRetryActionSuccessful(result: boolean | void): boolean {
+  return result !== false
+}
+
+async function copyTextWithFallback(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', 'true')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    textarea.style.pointerEvents = 'none'
+
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+
+    try {
+      return document.execCommand('copy')
+    } catch {
+      return false
+    } finally {
+      document.body.removeChild(textarea)
+    }
+  }
 }
 
 // Error types that should show "new conversation" button
@@ -111,9 +144,11 @@ export function ErrorCard({
     [error, errorType, t]
   )
 
+  const recommendationErrorType = errorType?.trim() || parsedError.type
+
   const recommendedModels = useMemo(
-    () => getRecommendedModels(parsedError.type),
-    [parsedError.type, getRecommendedModels]
+    () => getRecommendedModels(recommendationErrorType),
+    [recommendationErrorType, getRecommendedModels]
   )
 
   const showNewConversation = NEW_CONVERSATION_ERROR_TYPES.has(parsedError.type)
@@ -144,9 +179,9 @@ export function ErrorCard({
     }
   }, [parsedError.type, t])
 
-  const handleInteraction = useCallback(
-    (action: string) => {
-      if (interactionId) {
+  const collapseCard = useCallback(
+    (action: string, persist: boolean = false) => {
+      if (persist && interactionId) {
         markErrorInteracted(interactionId, action)
       }
       setIsInteracted(true)
@@ -155,22 +190,36 @@ export function ErrorCard({
   )
 
   const handleRetryWithModel = useCallback(
-    (model: UnifiedModel) => {
-      handleInteraction('switch_model')
-      onRetryWithModel?.(message, model)
+    async (model: UnifiedModel) => {
+      try {
+        const result = await onRetryWithModel?.(message, model)
+        if (isRetryActionSuccessful(result)) {
+          collapseCard('switch_model')
+        }
+      } catch (retryError) {
+        console.error('[ErrorCard] Retry with model failed:', retryError)
+      }
     },
-    [handleInteraction, onRetryWithModel, message]
+    [collapseCard, onRetryWithModel, message]
   )
 
   const handleNewConversation = useCallback(() => {
-    handleInteraction('new_conversation')
+    collapseCard('new_conversation', true)
     window.open('/chat', '_blank')
-  }, [handleInteraction])
+  }, [collapseCard])
 
   const handleRetry = useCallback(() => {
-    handleInteraction('retry')
-    onRetry?.(message)
-  }, [handleInteraction, onRetry, message])
+    void (async () => {
+      try {
+        const result = await onRetry?.(message)
+        if (isRetryActionSuccessful(result)) {
+          collapseCard('retry')
+        }
+      } catch (retryError) {
+        console.error('[ErrorCard] Retry failed:', retryError)
+      }
+    })()
+  }, [collapseCard, onRetry, message])
 
   const isCollapsed = isInteracted
 
@@ -327,12 +376,10 @@ function ErrorCardCopyDeveloper({
       errorType,
       errorMessage: error,
     }
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(diagnosticInfo, null, 2))
+    const copied = await copyTextWithFallback(JSON.stringify(diagnosticInfo, null, 2))
+    if (copied) {
       onCopySuccess(true)
       setTimeout(() => onCopySuccess(false), 2000)
-    } catch {
-      // Fallback: textarea select
     }
   }, [error, errorType, subtaskId, taskId, timestamp, userId, userName, onCopySuccess])
 

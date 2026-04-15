@@ -14,6 +14,11 @@ interface CacheEntry {
   timestamp: number
 }
 
+const ERROR_TYPE_ALIASES: Record<string, string[]> = {
+  model_unavailable: ['llm_error'],
+  llm_error: ['model_unavailable'],
+}
+
 // Module-level cache shared across all hook instances
 let cachedEntry: CacheEntry | null = null
 
@@ -60,7 +65,16 @@ export function useErrorRecommendations() {
 
   const getRecommendedModels = useCallback(
     (errorType: string): UnifiedModel[] => {
-      return recommendations[errorType]?.models ?? []
+      const candidateKeys = [errorType, ...(ERROR_TYPE_ALIASES[errorType] ?? [])]
+
+      for (const key of candidateKeys) {
+        const models = recommendations[key]?.models
+        if (models?.length) {
+          return models
+        }
+      }
+
+      return []
     },
     [recommendations]
   )

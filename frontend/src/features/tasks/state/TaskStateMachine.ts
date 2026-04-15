@@ -1319,6 +1319,7 @@ export class TaskStateMachine {
       status: finalStatus,
       subtaskStatus: finalSubtaskStatus,
       content: finalContent,
+      timestamp: event.hasError ? Date.now() : existingMessage.timestamp,
       isReasoningStreaming: false,
       error: event.hasError ? event.errorMessage : existingMessage.error,
       // CRITICAL FIX: Only update messageId if event.messageId is defined
@@ -1368,6 +1369,7 @@ export class TaskStateMachine {
       ...existingMessage,
       status: 'error',
       subtaskStatus: 'FAILED',
+      timestamp: Date.now(),
       error: event.error,
       errorType: event.errorType ?? existingMessage.errorType,
       messageId: event.messageId ?? existingMessage.messageId,
