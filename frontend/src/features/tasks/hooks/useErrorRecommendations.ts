@@ -14,6 +14,8 @@ interface CacheEntry {
   timestamp: number
 }
 
+export const DEFAULT_ERROR_RECOMMENDATION_KEY = 'default_errors'
+
 const ERROR_TYPE_ALIASES: Record<string, string[]> = {
   model_unavailable: ['llm_error'],
   llm_error: ['model_unavailable'],
@@ -21,6 +23,37 @@ const ERROR_TYPE_ALIASES: Record<string, string[]> = {
 
 // Module-level cache shared across all hook instances
 let cachedEntry: CacheEntry | null = null
+
+function hasRecommendationEntry(
+  recommendations: Record<string, ErrorRecommendationEntry>,
+  key: string
+): boolean {
+  return Object.prototype.hasOwnProperty.call(recommendations, key)
+}
+
+function getRecommendationLookupKeys(errorType: string): string[] {
+  const normalizedErrorType = errorType.trim()
+  if (!normalizedErrorType) {
+    return []
+  }
+
+  return Array.from(
+    new Set([normalizedErrorType, ...(ERROR_TYPE_ALIASES[normalizedErrorType] ?? [])])
+  )
+}
+
+export function getRecommendedModelsForError(
+  recommendations: Record<string, ErrorRecommendationEntry>,
+  errorType: string
+): UnifiedModel[] {
+  for (const key of getRecommendationLookupKeys(errorType)) {
+    if (hasRecommendationEntry(recommendations, key)) {
+      return recommendations[key]?.models ?? []
+    }
+  }
+
+  return recommendations[DEFAULT_ERROR_RECOMMENDATION_KEY]?.models ?? []
+}
 
 /**
  * Hook to fetch error-type-specific model recommendations.
@@ -64,18 +97,7 @@ export function useErrorRecommendations() {
   }, [])
 
   const getRecommendedModels = useCallback(
-    (errorType: string): UnifiedModel[] => {
-      const candidateKeys = [errorType, ...(ERROR_TYPE_ALIASES[errorType] ?? [])]
-
-      for (const key of candidateKeys) {
-        const models = recommendations[key]?.models
-        if (models?.length) {
-          return models
-        }
-      }
-
-      return []
-    },
+    (errorType: string): UnifiedModel[] => getRecommendedModelsForError(recommendations, errorType),
     [recommendations]
   )
 

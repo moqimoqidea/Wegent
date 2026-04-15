@@ -525,7 +525,16 @@ class Settings(BaseSettings):
 
     # Error model recommendations configuration (platform-level, public models only)
     # JSON string mapping error types to recommended public model names.
-    # Example: {"context_length_exceeded":{"description":"Large context models","models":["model-a","model-b"]}}
+    # Example: {
+    #   "context_length_exceeded": {
+    #     "description": "Large context models",
+    #     "models": ["model-a", "model-b"]
+    #   },
+    #   "default_errors": {
+    #     "description": "Fallback models for unmapped errors",
+    #     "models": ["model-c"]
+    #   }
+    # }
     ERROR_MODEL_RECOMMENDATIONS: str = ""
 
     # Maximum time to wait for active streaming requests to complete (seconds)
