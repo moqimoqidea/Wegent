@@ -140,7 +140,7 @@ export function ErrorCard({
   const [copySuccess, setCopySuccess] = useState(false)
 
   const friendlyMessage = useMemo(
-    () => getErrorDisplayMessage(error, (key: string) => t(key), undefined, errorType),
+    () => getErrorDisplayMessage(error, (key: string) => t(key), errorType),
     [error, errorType, t]
   )
 

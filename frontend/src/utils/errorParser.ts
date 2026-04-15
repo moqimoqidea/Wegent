@@ -319,14 +319,17 @@ function buildResult(type: ErrorType, errorMessage: string): ParsedError {
 }
 
 /**
- * Get user-friendly error message with i18n support.
+ * Get user-friendly error message for display in toast/UI.
+ *
+ * Always returns an i18n-translated friendly message for ALL error types.
+ * Raw error details are available separately via parseError().originalError
+ * (shown in the expandable "Error Details" section of ErrorCard).
  *
  * @param error - Error object or error message
  * @param t - i18n translation function
  * @param backendType - Optional error type from backend classification
- * @returns User-friendly error message
  */
-export function getUserFriendlyErrorMessage(
+export function getErrorDisplayMessage(
   error: Error | string,
   t: (key: string) => string,
   backendType?: string
@@ -373,34 +376,4 @@ export function getUserFriendlyErrorMessage(
     default:
       return t('errors.generic_error')
   }
-}
-
-/**
- * Get error message for display in toast/UI.
- *
- * Logic:
- * - For specific error types, return friendly translated message
- * - For generic/unclassified errors, return the original error message directly
- *
- * @param error - Error object or error message
- * @param t - i18n translation function
- * @param fallbackMessage - Fallback message when originalError is empty
- * @param backendType - Optional error type from backend classification
- * @returns Display message for toast/UI
- */
-export function getErrorDisplayMessage(
-  error: Error | string,
-  t: (key: string) => string,
-  fallbackMessage?: string,
-  backendType?: string
-): string {
-  const parsedError = parseError(error, backendType)
-
-  if (parsedError.type === 'generic_error') {
-    // Show original error message for business errors (e.g., "Team not found")
-    return parsedError.originalError || fallbackMessage || t('errors.generic_error')
-  }
-
-  // Use friendly message for specific error types
-  return getUserFriendlyErrorMessage(error, t, backendType)
 }

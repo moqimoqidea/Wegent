@@ -2,11 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  parseError,
-  getUserFriendlyErrorMessage,
-  getErrorDisplayMessage,
-} from '@/utils/errorParser'
+import { parseError, getErrorDisplayMessage } from '@/utils/errorParser'
 
 describe('errorParser', () => {
   describe('parseError', () => {
@@ -352,69 +348,6 @@ describe('errorParser', () => {
     })
   })
 
-  describe('getUserFriendlyErrorMessage', () => {
-    const mockT = (key: string) => {
-      const translations: Record<string, string> = {
-        'errors.forbidden': 'Access forbidden',
-        'errors.model_unsupported': 'Model not supported',
-        'errors.llm_unsupported': 'LLM unsupported',
-        'errors.llm_error': 'LLM error',
-        'errors.invalid_parameter': 'Invalid parameter',
-        'errors.payload_too_large': 'Payload too large',
-        'errors.network_error': 'Network error',
-        'errors.timeout_error': 'Timeout error',
-        'errors.generic_error': 'Generic error',
-      }
-      return translations[key] || key
-    }
-
-    it('should return friendly message for forbidden errors', () => {
-      const message = getUserFriendlyErrorMessage('forbidden', mockT)
-      expect(message).toBe('Access forbidden')
-    })
-
-    it('should return friendly message for llm_unsupported errors', () => {
-      const message = getUserFriendlyErrorMessage('multimodal not supported', mockT)
-      expect(message).toBe('LLM unsupported')
-    })
-
-    it('should return friendly message for llm_error', () => {
-      const message = getUserFriendlyErrorMessage('model unavailable', mockT)
-      expect(message).toBe('LLM error')
-    })
-
-    it('should return friendly message for invalid_parameter', () => {
-      const message = getUserFriendlyErrorMessage('invalid parameter', mockT)
-      expect(message).toBe('Invalid parameter')
-    })
-
-    it('should return friendly message for payload_too_large', () => {
-      const message = getUserFriendlyErrorMessage('413 error', mockT)
-      expect(message).toBe('Payload too large')
-    })
-
-    it('should return friendly message for network_error', () => {
-      const message = getUserFriendlyErrorMessage('network failed', mockT)
-      expect(message).toBe('Network error')
-    })
-
-    it('should return friendly message for timeout_error', () => {
-      const message = getUserFriendlyErrorMessage('timeout', mockT)
-      expect(message).toBe('Timeout error')
-    })
-
-    it('should return friendly message for generic_error', () => {
-      const message = getUserFriendlyErrorMessage('unknown error', mockT)
-      expect(message).toBe('Generic error')
-    })
-
-    it('should handle Error objects', () => {
-      const error = new Error('network error')
-      const message = getUserFriendlyErrorMessage(error, mockT)
-      expect(message).toBe('Network error')
-    })
-  })
-
   describe('getErrorDisplayMessage', () => {
     const mockT = (key: string) => {
       const translations: Record<string, string> = {
@@ -457,28 +390,31 @@ describe('errorParser', () => {
       })
     })
 
-    describe('generic errors should return original error message', () => {
-      it('should return original error for "Team not found"', () => {
+    describe('generic errors should return friendly i18n message', () => {
+      it('should return friendly message for "Team not found"', () => {
         const message = getErrorDisplayMessage('Team not found', mockT)
-        expect(message).toBe('Team not found')
+        expect(message).toBe('Generic error')
       })
 
-      it('should return original error for business errors', () => {
+      it('should return friendly message for business errors', () => {
         const message = getErrorDisplayMessage('User does not have permission', mockT)
-        expect(message).toBe('User does not have permission')
+        expect(message).toBe('Generic error')
       })
 
-      it('should return original error for unknown errors', () => {
+      it('should return friendly message for unknown errors', () => {
         const message = getErrorDisplayMessage('Something went wrong', mockT)
-        expect(message).toBe('Something went wrong')
+        expect(message).toBe('Generic error')
       })
 
-      it('should return fallback message when original error is empty', () => {
-        const message = getErrorDisplayMessage('', mockT, 'Fallback message')
-        expect(message).toBe('Fallback message')
+      it('should return friendly message for raw SDK error strings', () => {
+        const message = getErrorDisplayMessage(
+          'Error code: 200 - {"type": "error", "error": {"type": "not_found_error", "message": "resource not found"}}',
+          mockT
+        )
+        expect(message).toBe('Generic error')
       })
 
-      it('should return generic_error translation when no fallback provided', () => {
+      it('should return friendly message when error is empty', () => {
         const message = getErrorDisplayMessage('', mockT)
         expect(message).toBe('Generic error')
       })
@@ -504,9 +440,9 @@ describe('errorParser', () => {
         expect(message).toBe('LLM unsupported')
       })
 
-      it('should handle Team not found as original error', () => {
+      it('should handle Team not found with friendly message', () => {
         const message = getErrorDisplayMessage('Team not found', mockT)
-        expect(message).toBe('Team not found')
+        expect(message).toBe('Generic error')
       })
 
       it('should handle Error objects', () => {
