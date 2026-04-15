@@ -1698,11 +1698,13 @@ const MessageBubble = memo(
       prevBlocksHash === nextBlocksHash && // CRITICAL: Compare block content changes
       prevProps.msg.status === nextProps.msg.status &&
       prevProps.msg.error === nextProps.msg.error &&
+      prevProps.msg.errorType === nextProps.msg.errorType &&
       prevProps.isPendingConfirmation === nextProps.isPendingConfirmation &&
       prevProps.isEditing === nextProps.isEditing &&
       prevProps.isLastAiMessage === nextProps.isLastAiMessage &&
       prevProps.isRegenerating === nextProps.isRegenerating &&
       prevProps.onUseAsReference === nextProps.onUseAsReference &&
+      prevProps.onRetryWithModel === nextProps.onRetryWithModel &&
       prevProps.onReEdit === nextProps.onReEdit &&
       prevProps.taskType === nextProps.taskType
 

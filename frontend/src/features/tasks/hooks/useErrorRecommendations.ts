@@ -23,6 +23,47 @@ const ERROR_TYPE_ALIASES: Record<string, string[]> = {
 
 // Module-level cache shared across all hook instances
 let cachedEntry: CacheEntry | null = null
+let inFlightRecommendationsRequest: Promise<Record<string, ErrorRecommendationEntry>> | null = null
+
+function hasFreshCache(): boolean {
+  return cachedEntry !== null && Date.now() - cachedEntry.timestamp < CACHE_TTL_MS
+}
+
+function getCachedRecommendations(): Record<string, ErrorRecommendationEntry> {
+  return hasFreshCache() ? (cachedEntry?.data ?? {}) : {}
+}
+
+function fetchRecommendationsOnce(): Promise<Record<string, ErrorRecommendationEntry>> {
+  if (hasFreshCache()) {
+    return Promise.resolve(cachedEntry?.data ?? {})
+  }
+
+  if (inFlightRecommendationsRequest) {
+    return inFlightRecommendationsRequest
+  }
+
+  inFlightRecommendationsRequest = modelApis
+    .getErrorRecommendations()
+    .then(response => {
+      const data = response.data || {}
+      cachedEntry = { data, timestamp: Date.now() }
+      return data
+    })
+    .catch(() => {
+      // API unavailable — fallback to empty recommendations
+      return {}
+    })
+    .finally(() => {
+      inFlightRecommendationsRequest = null
+    })
+
+  return inFlightRecommendationsRequest
+}
+
+export function __resetErrorRecommendationsCacheForTests(): void {
+  cachedEntry = null
+  inFlightRecommendationsRequest = null
+}
 
 function hasRecommendationEntry(
   recommendations: Record<string, ErrorRecommendationEntry>,
@@ -63,7 +104,7 @@ export function getRecommendedModelsForError(
  */
 export function useErrorRecommendations() {
   const [recommendations, setRecommendations] = useState<Record<string, ErrorRecommendationEntry>>(
-    cachedEntry?.data ?? {}
+    getCachedRecommendations()
   )
   const [isLoading, setIsLoading] = useState(false)
   const fetchedRef = useRef(false)
@@ -71,25 +112,17 @@ export function useErrorRecommendations() {
   useEffect(() => {
     if (fetchedRef.current) return
 
-    // Use cache if still valid
-    if (cachedEntry && Date.now() - cachedEntry.timestamp < CACHE_TTL_MS) {
-      setRecommendations(cachedEntry.data)
+    if (hasFreshCache()) {
+      setRecommendations(cachedEntry?.data ?? {})
       return
     }
 
     fetchedRef.current = true
     setIsLoading(true)
 
-    modelApis
-      .getErrorRecommendations()
-      .then(response => {
-        const data = response.data || {}
-        cachedEntry = { data, timestamp: Date.now() }
+    fetchRecommendationsOnce()
+      .then(data => {
         setRecommendations(data)
-      })
-      .catch(() => {
-        // API unavailable — fallback to empty recommendations
-        setRecommendations({})
       })
       .finally(() => {
         setIsLoading(false)

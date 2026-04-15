@@ -42,6 +42,7 @@ const VALID_BACKEND_TYPES = new Set<string>([
   'context_length_exceeded',
   'quota_exceeded',
   'rate_limit',
+  'llm_error',
   'model_unavailable',
   'container_oom',
   'container_error',
@@ -65,6 +66,7 @@ const BACKEND_TYPE_MAP: Record<string, ErrorType> = {
   context_length_exceeded: 'context_length_exceeded',
   quota_exceeded: 'quota_exceeded',
   rate_limit: 'rate_limit',
+  llm_error: 'llm_error',
   model_unavailable: 'llm_error',
   container_oom: 'container_oom',
   container_error: 'container_error',
@@ -279,6 +281,17 @@ function classifyByMessage(errorMessage: string): ParsedError {
     return buildResult('payload_too_large', errorMessage)
   }
 
+  // Timeout (includes gateway timeouts)
+  if (
+    lowerMessage.includes('timeout') ||
+    lowerMessage.includes('timed out') ||
+    lowerMessage.includes('504 gateway') ||
+    lowerMessage.includes('502 bad gateway') ||
+    lowerMessage.includes('超时')
+  ) {
+    return buildResult('timeout_error', errorMessage)
+  }
+
   // Network errors (includes upstream connection issues)
   if (
     lowerMessage.includes('network') ||
@@ -287,20 +300,9 @@ function classifyByMessage(errorMessage: string): ParsedError {
     lowerMessage.includes('not connected') ||
     lowerMessage.includes('websocket') ||
     lowerMessage.includes('peer closed connection') ||
-    lowerMessage.includes('upstream connection interrupted') ||
-    lowerMessage.includes('超时')
+    lowerMessage.includes('upstream connection interrupted')
   ) {
     return buildResult('network_error', errorMessage)
-  }
-
-  // Timeout (includes gateway timeouts)
-  if (
-    lowerMessage.includes('timeout') ||
-    lowerMessage.includes('timed out') ||
-    lowerMessage.includes('504 gateway') ||
-    lowerMessage.includes('502 bad gateway')
-  ) {
-    return buildResult('timeout_error', errorMessage)
   }
 
   // Generic fallback

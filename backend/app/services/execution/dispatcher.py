@@ -52,6 +52,8 @@ from .router import CommunicationMode, ExecutionRouter, ExecutionTarget
 
 logger = logging.getLogger(__name__)
 
+_FRONTEND_ERROR_EMITTED_ATTR = "_frontend_error_emitted"
+
 
 class InvalidToolCallEventError(ValueError):
     """Raised when a Responses API tool event is missing its correlation ID."""
@@ -414,6 +416,7 @@ class ExecutionDispatcher:
                         error=format_error_message(e),
                         error_code=error_code,
                     )
+                    setattr(e, _FRONTEND_ERROR_EMITTED_ATTR, True)
                 except Exception as emit_error:
                     logger.error(
                         f"[ExecutionDispatcher] Failed to emit error: {emit_error}"

@@ -215,6 +215,20 @@ describe('errorParser', () => {
         expect(result.type).toBe('timeout_error')
         expect(result.retryable).toBe(true)
       })
+
+      it('should detect Chinese timeout errors as timeout_error', () => {
+        const result = parseError('请求超时，请稍后重试')
+        expect(result.type).toBe('timeout_error')
+        expect(result.retryable).toBe(true)
+      })
+    })
+
+    describe('backend-provided error types', () => {
+      it('should accept backend llm_error explicitly', () => {
+        const result = parseError('provider overloaded', 'llm_error')
+        expect(result.type).toBe('llm_error')
+        expect(result.retryable).toBe(true)
+      })
     })
 
     describe('generic errors', () => {

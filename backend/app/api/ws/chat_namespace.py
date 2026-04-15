@@ -839,6 +839,15 @@ class ChatNamespace(socketio.AsyncNamespace):
                         logger.exception(
                             f"[WS] chat:send AI trigger failed: task_id={task.id}, error={e}"
                         )
+                        if getattr(e, "_frontend_error_emitted", False):
+                            logger.info(
+                                "[WS] chat:send skipping fallback chat:error because "
+                                "ExecutionDispatcher already emitted it: task_id=%s, subtask_id=%s",
+                                task.id,
+                                assistant_subtask.id,
+                            )
+                            return
+
                         from shared.utils.error_classifier import (
                             classify_error,
                             format_error_message,
@@ -852,6 +861,8 @@ class ChatNamespace(socketio.AsyncNamespace):
                                 subtask_id=assistant_subtask.id,
                                 error=format_error_message(e),
                                 type=error_code,
+                                message_id=assistant_subtask.message_id,
+                                task_id=task.id,
                             ).model_dump(),
                             room=task_room,
                         )
@@ -1300,6 +1311,8 @@ class ChatNamespace(socketio.AsyncNamespace):
                 labels["forceOverrideBotModel"] = "true"
                 if model_type:
                     labels["forceOverrideBotModelType"] = model_type
+                else:
+                    labels.pop("forceOverrideBotModelType", None)
                 task.json = task_json
                 flag_modified(task, "json")
                 db.commit()

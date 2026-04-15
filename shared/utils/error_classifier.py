@@ -220,6 +220,17 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "payload too large",
         ],
     ),
+    # Timeout errors (includes gateway timeouts)
+    (
+        ChatErrorCode.TIMEOUT_ERROR,
+        [
+            "timeout",
+            "timed out",
+            "504 gateway",
+            "502 bad gateway",
+            "超时",
+        ],
+    ),
     # Network errors (includes upstream connection issues)
     (
         ChatErrorCode.NETWORK_ERROR,
@@ -231,17 +242,6 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
             "not connected",
             "peer closed connection",
             "upstream connection interrupted",
-            "超时",
-        ],
-    ),
-    # Timeout (includes gateway timeouts)
-    (
-        ChatErrorCode.TIMEOUT_ERROR,
-        [
-            "timeout",
-            "timed out",
-            "504 gateway",
-            "502 bad gateway",
         ],
     ),
 ]
