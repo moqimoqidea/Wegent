@@ -15,25 +15,25 @@ describe('errorParser', () => {
         const error = new Error('forbidden')
         const result = parseError(error)
         expect(result.type).toBe('forbidden')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect not allowed errors', () => {
         const result = parseError('Request not allowed')
         expect(result.type).toBe('forbidden')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect unauthorized errors', () => {
         const result = parseError('unauthorized access')
         expect(result.type).toBe('forbidden')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect 403 errors', () => {
         const result = parseError('403 Forbidden')
         expect(result.type).toBe('forbidden')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
     })
 
@@ -41,37 +41,37 @@ describe('errorParser', () => {
       it('should detect multi-modal errors', () => {
         const result = parseError('multi-modal not supported')
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect multimodal errors (no hyphen)', () => {
         const result = parseError('multimodal content not supported')
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect llm model mismatch errors', () => {
         const result = parseError('llm model expected but received')
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect "do not support" errors', () => {
         const result = parseError('Model do not support image input')
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect "does not support" errors', () => {
         const result = parseError('This model does not support image processing')
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect image not supported errors', () => {
         const result = parseError('Model not support image input')
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
     })
 
@@ -120,13 +120,13 @@ describe('errorParser', () => {
 
       it('should detect api rate limit errors', () => {
         const result = parseError('api rate limit exceeded')
-        expect(result.type).toBe('llm_error')
+        expect(result.type).toBe('rate_limit')
         expect(result.retryable).toBe(true)
       })
 
       it('should detect quota exceeded errors', () => {
         const result = parseError('quota exceeded for this model')
-        expect(result.type).toBe('llm_error')
+        expect(result.type).toBe('quota_exceeded')
         expect(result.retryable).toBe(true)
       })
 
@@ -277,7 +277,7 @@ describe('errorParser', () => {
           'data: {"error":{"code":null,"message":"{\\"error\\":{\\"code\\":\\"InvalidParameter\\",\\"message\\":\\"Model do not support image input. Request id: 021768537375878a77eec5e653ab4759e46069478d0f365166e60\\",\\"param\\":\\"image_url\\",\\"type\\":\\"BadRequest\\"}}, model_id: DeepSeek-V3.2-251201","param":null,"type":"api_error"}}"'
         const result = parseError(error)
         expect(result.type).toBe('llm_unsupported')
-        expect(result.retryable).toBe(false)
+        expect(result.retryable).toBe(true)
       })
 
       it('should detect peer closed connection as network error', () => {
