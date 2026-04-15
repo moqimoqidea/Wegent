@@ -1031,6 +1031,7 @@ function ChatAreaContent({
     onAttachmentRemove: chatState.handleAttachmentRemove,
     isLoading: chatState.isLoading,
     isStreaming: streamHandlers.isStreaming,
+    isAwaitingResponseStart: streamHandlers.isAwaitingResponseStart,
     isStopping: streamHandlers.isStopping,
     hasMessages,
     shouldCollapseSelectors,

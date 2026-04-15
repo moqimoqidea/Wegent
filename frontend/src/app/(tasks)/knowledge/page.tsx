@@ -148,7 +148,7 @@ function KnowledgePageContent() {
   )
 
   const navigateToKnowledgeDetail = (projectId: number) => {
-    router.push(`/knowledge/${projectId}?from=code`)
+    router.push(`/knowledge/project/${projectId}?from=code`)
   }
 
   const navigateToTask = (taskId: number) => {
