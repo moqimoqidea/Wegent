@@ -283,7 +283,6 @@
     "model_protocol_error_hint": "This model only supports specific request formats. Please switch to a compatible model",
     "invalid_role_hint": "The message format is not supported by this model. Please switch to a different model",
     "permission_denied_hint": "You don't have access to this model. Please switch to a model within your permissions",
-    "wait_and_retry": "Wait and retry",
     "retry_with_current_model": "Retry with current model",
     "card_resolved": "Resolved"
   },

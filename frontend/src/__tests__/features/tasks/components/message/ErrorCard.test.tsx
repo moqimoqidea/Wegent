@@ -11,6 +11,7 @@ import { ErrorCard } from '@/features/tasks/components/message/ErrorCard'
 import type { Message } from '@/features/tasks/components/message/MessageBubble'
 
 const mockGetRecommendedModels = jest.fn()
+const mockUseErrorRecommendations = jest.fn()
 
 jest.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => ({
@@ -28,9 +29,7 @@ jest.mock('@/features/common/UserContext', () => ({
 }))
 
 jest.mock('@/features/tasks/hooks/useErrorRecommendations', () => ({
-  useErrorRecommendations: () => ({
-    getRecommendedModels: mockGetRecommendedModels,
-  }),
+  useErrorRecommendations: () => mockUseErrorRecommendations(),
 }))
 
 function getRecommendedModel() {
@@ -62,6 +61,36 @@ describe('ErrorCard', () => {
     mockGetRecommendedModels.mockImplementation((errorType: string) =>
       errorType === 'model_unavailable' ? [getRecommendedModel()] : []
     )
+    mockUseErrorRecommendations.mockReturnValue({
+      getRecommendedModels: mockGetRecommendedModels,
+      isLoading: false,
+    })
+  })
+
+  it('does not show current-model retry while recommendations are still loading', () => {
+    mockUseErrorRecommendations.mockReturnValue({
+      getRecommendedModels: mockGetRecommendedModels,
+      isLoading: true,
+    })
+
+    render(
+      <ErrorCard
+        error="rate limit exceeded"
+        errorType="rate_limit"
+        subtaskId={42}
+        taskId={100}
+        timestamp={1000}
+        message={{
+          ...createErrorMessage(1000, 'rate limit exceeded'),
+          errorType: 'rate_limit',
+        }}
+        isLastErrorMessage={true}
+        onRetry={jest.fn()}
+      />
+    )
+
+    expect(screen.queryByTestId('error-card-retry')).not.toBeInTheDocument()
+    expect(mockGetRecommendedModels).toHaveBeenCalledWith('rate_limit')
   })
 
   it('reopens a new last-error instance after switch-model retry fails again', async () => {
@@ -139,6 +168,9 @@ describe('ErrorCard', () => {
         onRetry={onRetry}
       />
     )
+
+    expect(screen.getByText('errors.retry_with_current_model')).toBeInTheDocument()
+    expect(screen.queryByText('errors.wait_and_retry')).not.toBeInTheDocument()
 
     await user.click(screen.getByTestId('error-card-retry'))
 

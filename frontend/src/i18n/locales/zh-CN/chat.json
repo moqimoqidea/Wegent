@@ -261,7 +261,6 @@
     "model_protocol_error_hint": "此模型仅支持特定请求格式，请切换到兼容的模型",
     "invalid_role_hint": "当前模型不支持此消息格式，建议切换到其他模型",
     "permission_denied_hint": "您没有使用该模型的权限，请切换到权限范围内的模型",
-    "wait_and_retry": "稍后重试",
     "retry_with_current_model": "使用当前模型重试",
     "card_resolved": "已处理"
   },

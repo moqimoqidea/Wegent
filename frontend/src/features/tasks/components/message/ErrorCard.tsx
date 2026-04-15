@@ -106,7 +106,8 @@ export function ErrorCard({
 }: ErrorCardProps) {
   const { t } = useTranslation('chat')
   const { user } = useUser()
-  const { getRecommendedModels } = useErrorRecommendations()
+  const { getRecommendedModels, isLoading: areRecommendationsLoading } =
+    useErrorRecommendations()
 
   const parsedError = useMemo(() => parseError(error, errorType), [error, errorType])
   const interactionId = useMemo(() => {
@@ -152,7 +153,7 @@ export function ErrorCard({
   )
 
   const showNewConversation = NEW_CONVERSATION_ERROR_TYPES.has(parsedError.type)
-  const showRetry = !!onRetry
+  const showRetry = !!onRetry && !areRecommendationsLoading
 
   const hintKey = useMemo(() => {
     switch (parsedError.type) {
@@ -463,9 +464,7 @@ function ErrorCardSolutions({
             data-testid="error-card-retry"
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            {recommendedModels.length === 0
-              ? t('errors.retry_with_current_model')
-              : t('errors.wait_and_retry')}
+            {t('errors.retry_with_current_model')}
           </Button>
         )}
       </div>
