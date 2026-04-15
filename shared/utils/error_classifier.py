@@ -248,19 +248,18 @@ _CLASSIFICATION_RULES: list[tuple[ChatErrorCode, list[str]]] = [
 
 # Map known SDK exception class names to error codes.
 # Uses class name strings to avoid hard dependencies on SDK packages.
+# OpenAI, Anthropic, and Google SDKs share some class names (e.g. RateLimitError,
+# AuthenticationError); since they all map to the same codes, a single entry suffices.
 _EXCEPTION_CLASS_MAP: dict[str, ChatErrorCode] = {
-    # OpenAI SDK
+    # Shared across OpenAI / Anthropic SDKs
     "RateLimitError": ChatErrorCode.RATE_LIMIT,
     "AuthenticationError": ChatErrorCode.FORBIDDEN,
     "PermissionDeniedError": ChatErrorCode.FORBIDDEN,
     "NotFoundError": ChatErrorCode.MODEL_UNAVAILABLE,
     "InternalServerError": ChatErrorCode.MODEL_UNAVAILABLE,
-    # Anthropic SDK
-    "RateLimitError": ChatErrorCode.RATE_LIMIT,
-    "AuthenticationError": ChatErrorCode.FORBIDDEN,
-    "PermissionDeniedError": ChatErrorCode.FORBIDDEN,
-    "NotFoundError": ChatErrorCode.MODEL_UNAVAILABLE,
     "OverloadedError": ChatErrorCode.MODEL_UNAVAILABLE,
+    # BadRequestError: refined further by message content in _classify_by_exception_type
+    "BadRequestError": ChatErrorCode.GENERIC_ERROR,
     # Google SDK
     "ResourceExhausted": ChatErrorCode.RATE_LIMIT,
     "PermissionDenied": ChatErrorCode.FORBIDDEN,

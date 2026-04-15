@@ -1075,13 +1075,9 @@ class ExecutionDispatcher:
                 f"[ExecutionDispatcher] In-process chat error: "
                 f"task_id={request.task_id}, error={e}"
             )
-            # Emit error event
-            await emitter.emit_error(
-                task_id=request.task_id,
-                subtask_id=request.subtask_id,
-                error=str(e),
-                message_id=request.message_id,
-            )
+            # Don't emit_error here — the outer dispatch() handler already
+            # emits a classified error with format_error_message. Emitting
+            # twice causes a race on the frontend.
             raise
 
     async def _dispatch_http_callback(

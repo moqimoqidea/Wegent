@@ -945,6 +945,7 @@ export class TaskStateMachine {
           subtaskStatus: subtask.status,
           result: subtask.result as UnifiedMessage['result'],
           error: hasFrontendError ? existingMessage?.error : undefined,
+          errorType: hasFrontendError ? existingMessage?.errorType : undefined,
           // Preserve existing reasoning content if present
           reasoningContent: existingAiMessage?.reasoningContent,
         })
@@ -1368,7 +1369,7 @@ export class TaskStateMachine {
       status: 'error',
       subtaskStatus: 'FAILED',
       error: event.error,
-      errorType: event.errorType,
+      errorType: event.errorType ?? existingMessage.errorType,
       messageId: event.messageId ?? existingMessage.messageId,
     })
 

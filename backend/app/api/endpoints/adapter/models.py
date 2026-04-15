@@ -295,7 +295,7 @@ def get_compatible_models(
             Kind.user_id == current_user.id,
             Kind.kind == "Model",
             Kind.namespace == "default",
-            Kind.is_active == True,
+            Kind.is_active.is_(True),
         )
         .all()
     )
