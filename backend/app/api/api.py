@@ -6,6 +6,7 @@
 from app.api.endpoints import (
     admin,
     api_keys,
+    attachments_open,
     auth,
     deep_research,
     devices,
@@ -154,6 +155,11 @@ api_router.include_router(
     knowledge.summary_router,
     prefix="/knowledge-bases",
     tags=["knowledge-summary"],
+)
+api_router.include_router(
+    attachments_open.router,
+    prefix="/v1/attachments",
+    tags=["attachments-open"],
 )
 api_router.include_router(
     knowledge_open.router,
