@@ -17,15 +17,19 @@ from app.services.rag.content_refs import build_content_ref_for_attachment
 from app.services.rag.runtime_specs import (
     ConnectionTestRuntimeSpec,
     DeleteRuntimeSpec,
+    DropKnowledgeIndexRuntimeSpec,
     IndexRuntimeSpec,
     ListChunksRuntimeSpec,
+    PurgeKnowledgeRuntimeSpec,
     QueryRuntimeSpec,
 )
 from shared.models import (
     RemoteDeleteDocumentIndexRequest,
+    RemoteDropKnowledgeIndexRequest,
     RemoteIndexRequest,
     RemoteListChunksRequest,
     RemoteListChunksResponse,
+    RemotePurgeKnowledgeIndexRequest,
     RemoteQueryRequest,
     RemoteQueryResponse,
     RemoteRagError,
@@ -65,23 +69,25 @@ class RemoteRagGateway:
         self,
         *,
         base_url: str | None = None,
-        token: str | None = None,
         timeout: float = 30.0,
+        auth_token: str | None = None,
     ) -> None:
         self._base_url = (base_url or settings.KNOWLEDGE_RUNTIME_URL).rstrip("/")
-        self._token = token if token is not None else settings.INTERNAL_SERVICE_TOKEN
         self._timeout = timeout
-
-    def _build_headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._token}"}
+        # Priority: 1. explicit auth_token, 2. INTERNAL_SERVICE_TOKEN
+        self._auth_token = auth_token or settings.INTERNAL_SERVICE_TOKEN
 
     async def _post_model(self, path: str, payload: Any) -> dict[str, Any]:
+        headers = {}
+        if self._auth_token:
+            headers["Authorization"] = f"Bearer {self._auth_token}"
+
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
                     f"{self._base_url}{path}",
-                    headers=self._build_headers(),
                     json=payload.model_dump(mode="json", exclude_none=True),
+                    headers=headers,
                 )
         except httpx.RequestError as exc:
             raise RemoteRagGatewayError(
@@ -206,6 +212,34 @@ class RemoteRagGateway:
             enabled_index_families=spec.enabled_index_families,
         )
         return await self._post_model("/internal/rag/delete-document-index", payload)
+
+    async def purge_knowledge_index(
+        self,
+        spec: PurgeKnowledgeRuntimeSpec,
+        *,
+        db: Session,
+    ) -> dict[str, Any]:
+        del db
+        payload = RemotePurgeKnowledgeIndexRequest(
+            knowledge_base_id=spec.knowledge_base_id,
+            index_owner_user_id=spec.index_owner_user_id,
+            retriever_config=spec.retriever_config,
+        )
+        return await self._post_model("/internal/rag/purge-knowledge-index", payload)
+
+    async def drop_knowledge_index(
+        self,
+        spec: DropKnowledgeIndexRuntimeSpec,
+        *,
+        db: Session,
+    ) -> dict[str, Any]:
+        del db
+        payload = RemoteDropKnowledgeIndexRequest(
+            knowledge_base_id=spec.knowledge_base_id,
+            index_owner_user_id=spec.index_owner_user_id,
+            retriever_config=spec.retriever_config,
+        )
+        return await self._post_model("/internal/rag/drop-knowledge-index", payload)
 
     async def list_chunks(
         self,

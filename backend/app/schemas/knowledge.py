@@ -23,6 +23,7 @@ from app.schemas.kind import (
 
 # Import SplitterConfig from rag.py to use unified splitter configuration
 from app.schemas.rag import SplitterConfig
+from app.services.knowledge.splitter_config import normalize_splitter_config
 
 
 class DocumentStatus(str, Enum):
@@ -39,6 +40,7 @@ class DocumentSourceType(str, Enum):
     TEXT = "text"
     TABLE = "table"
     WEB = "web"
+    ATTACHMENT = "attachment"
 
 
 class DocumentIndexStatus(str, Enum):
@@ -382,6 +384,14 @@ class KnowledgeDocumentResponse(BaseModel):
             return {}
         return v
 
+    @field_validator("splitter_config", mode="before")
+    @classmethod
+    def normalize_splitter_config_for_response(cls, v):
+        """Return normalized splitter config payloads in API responses."""
+        if v is None:
+            return v
+        return normalize_splitter_config(v)
+
     class Config:
         from_attributes = True
 
@@ -582,6 +592,9 @@ class DocumentContentReadResponse(BaseModel):
     returned_length: int = Field(..., ge=0, description="Number of characters returned")
     has_more: bool = Field(..., description="Whether more content is available")
     kb_id: int = Field(..., description="Knowledge base ID")
+    index_status: DocumentIndexStatus = Field(
+        ..., description="Document indexing status"
+    )
 
 
 class DocumentContentUpdate(BaseModel):
@@ -637,10 +650,13 @@ class ChunkMetadata(BaseModel):
         default_factory=list, description="List of chunk items"
     )
     total_count: int = Field(0, ge=0, description="Total number of chunks")
-    splitter_type: str = Field("semantic", description="Type of splitter used")
+    splitter_type: str = Field(
+        "flat",
+        description="Normalized chunk strategy used for indexing (flat|hierarchical|semantic)",
+    )
     splitter_subtype: Optional[str] = Field(
         None,
-        description="Subtype for smart splitter (markdown_sentence|sentence|recursive_character)",
+        description="Optional parser subtype resolved during format enhancement",
     )
     created_at: str = Field(..., description="Chunk creation timestamp (ISO format)")
 
@@ -663,8 +679,14 @@ class ChunkListResponse(BaseModel):
     page: int = Field(1, ge=1, description="Current page number")
     page_size: int = Field(20, ge=1, le=100, description="Page size")
     items: list[ChunkItem] = Field(default_factory=list, description="Chunk items")
-    splitter_type: Optional[str] = Field(None, description="Type of splitter used")
-    splitter_subtype: Optional[str] = Field(None, description="Splitter subtype")
+    splitter_type: Optional[str] = Field(
+        None,
+        description="Normalized chunk strategy used for indexing (flat|hierarchical|semantic)",
+    )
+    splitter_subtype: Optional[str] = Field(
+        None,
+        description="Optional parser subtype resolved during format enhancement",
+    )
 
 
 # ============== Citation Schemas ==============
@@ -721,3 +743,117 @@ class KnowledgeBaseMigrateResponse(BaseModel):
     knowledge_base_id: int = Field(..., description="Knowledge base ID")
     old_namespace: str = Field(..., description="Original namespace")
     new_namespace: str = Field(..., description="New namespace after migration")
+
+
+# ============== v1 API Schemas ==============
+
+# Maximum allowed binary size for base64-encoded file uploads (10 MiB)
+_MAX_FILE_DECODED_BYTES = 10 * 1024 * 1024
+_MAX_FILE_BASE64_LEN = ((_MAX_FILE_DECODED_BYTES + 2) // 3) * 4  # 13_981_016
+
+
+class KnowledgeDocumentCreateV1(BaseModel):
+    """Request schema for v1 document creation endpoint.
+
+    Accepts all source types; unsupported types are rejected at the
+    handler level with a descriptive error.
+    """
+
+    knowledge_base_id: int = Field(..., description="Target knowledge base ID")
+    name: str = Field(..., min_length=1, max_length=255, description="Document name")
+    source_type: DocumentSourceType = Field(
+        DocumentSourceType.TEXT,
+        description=(
+            "Document source type: 'text' (inline content), 'file' (base64 binary), "
+            "'web' (URL scraping), 'attachment' (existing attachment ID)"
+        ),
+    )
+    # source_type=text
+    content: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=500_000,
+        description="Text content (required for source_type='text')",
+    )
+    file_extension: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="File extension without leading dot, e.g. 'md' (optional for source_type='text')",
+    )
+    # source_type=file
+    file_base64: Optional[str] = Field(
+        None,
+        max_length=_MAX_FILE_BASE64_LEN,
+        description="Base64-encoded file binary (required for source_type='file', max 10 MB decoded)",
+    )
+    # source_type=web
+    url: Optional[str] = Field(
+        None,
+        description="URL to scrape (required for source_type='web')",
+    )
+    # source_type=attachment
+    attachment_id: Optional[int] = Field(
+        None,
+        description="Attachment context ID (required for source_type='attachment')",
+    )
+    # common optional
+    splitter_config: Optional[SplitterConfig] = Field(
+        None,
+        description="Custom text splitter configuration",
+    )
+
+
+class DocumentContentUpdateResponse(BaseModel):
+    """Response schema for the v1 document content update endpoint."""
+
+    success: bool = Field(..., description="Whether the update succeeded")
+    document_id: int = Field(..., description="ID of the updated document")
+    message: str = Field(..., description="Human-readable result message")
+
+
+class KnowledgeSearchRequest(BaseModel):
+    """Request schema for v1 knowledge base search endpoint.
+
+    Resolves retriever and embedding model automatically from KB config,
+    so callers only need to specify what to search, not how.
+    """
+
+    knowledge_base_id: int = Field(..., description="Knowledge base ID to search in")
+    query: str = Field(
+        ..., min_length=1, max_length=2000, description="Search query text"
+    )
+    top_k: int = Field(5, ge=1, le=100, description="Number of results to return")
+    score_threshold: float = Field(
+        0.7, ge=0.0, le=1.0, description="Minimum similarity score threshold"
+    )
+    route_mode: str = Field(
+        "auto",
+        description="Retrieval mode: 'auto', 'direct_injection', or 'rag_retrieval'",
+    )
+    context_window: int = Field(
+        128000,
+        ge=1,
+        description="Context window size for direct injection mode",
+    )
+    used_context_tokens: int = Field(
+        0,
+        ge=0,
+        description="Already used context tokens",
+    )
+    reserved_output_tokens: int = Field(
+        4096,
+        ge=0,
+        description="Reserved output tokens",
+    )
+    context_buffer_ratio: float = Field(
+        0.1,
+        ge=0.0,
+        le=1.0,
+        description="Context buffer ratio for safety margin",
+    )
+    max_direct_chunks: int = Field(
+        500,
+        ge=1,
+        le=10000,
+        description="Maximum chunks for direct injection",
+    )

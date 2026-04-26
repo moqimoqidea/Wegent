@@ -19,8 +19,10 @@ from datetime import datetime
 
 from app.core.cache import cache_manager
 from app.core.config import settings
-from app.db.session import SessionLocal
+from app.core.distributed_lock import distributed_lock
+from app.db.session import AsyncSessionLocal, SessionLocal
 from app.services.adapters.executor_job import job_service
+from app.services.executor_cleanup_cursor_service import EXECUTOR_CLEANUP_CURSOR_KEY
 from app.services.repository_job import repository_job_service
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,8 @@ REPO_UPDATE_LOCK_KEY = "repository_update_lock"
 REPO_UPDATE_LOCK_KEY_INTERVAL = settings.REPO_UPDATE_INTERVAL_SECONDS - 10
 if REPO_UPDATE_LOCK_KEY_INTERVAL < 10:
     REPO_UPDATE_LOCK_KEY_INTERVAL = 10
+
+EXECUTOR_CLEANUP_LOCK_KEY = "executor_cleanup_lock"
 
 
 async def acquire_repo_update_lock() -> bool:
@@ -72,26 +76,62 @@ async def release_repo_update_lock() -> bool:
         return False
 
 
-def cleanup_worker(stop_event: threading.Event):
+async def _cleanup_recently_executed() -> bool:
+    """Check if executor cleanup was recently executed by any pod."""
+    try:
+        payload = await cache_manager.get(EXECUTOR_CLEANUP_CURSOR_KEY)
+        if not isinstance(payload, dict):
+            return False
+        updated_at_str = payload.get("updated_at")
+        if not updated_at_str:
+            return False
+        updated_at = datetime.fromisoformat(updated_at_str)
+        elapsed = (datetime.now() - updated_at).total_seconds()
+        if elapsed < settings.TASK_EXECUTOR_CLEANUP_INTERVAL_SECONDS:
+            logger.info(
+                "[job] Executor cleanup recently executed %.0fs ago, skipping",
+                elapsed,
+            )
+            return True
+    except Exception as e:
+        logger.warning(f"[job] Failed to check cleanup cursor: {e}")
+    return False
+
+
+async def cleanup_worker(stop_event: asyncio.Event):
     """
-    Background worker for cleaning up stale executors
+    Async background worker for cleaning up stale executors.
 
     Args:
         stop_event: Event to signal the worker to stop
     """
-    # Periodically scan and cleanup stale executors for subtasks
     while not stop_event.is_set():
         try:
-            db = SessionLocal()
-            try:
-                job_service.cleanup_stale_executors(db)
-            finally:
-                db.close()
+            if await _cleanup_recently_executed():
+                pass
+            else:
+                async with distributed_lock.acquire_watchdog_context_async(
+                    EXECUTOR_CLEANUP_LOCK_KEY,
+                    expire_seconds=300,
+                    extend_interval_seconds=60,
+                ) as acquired:
+                    if not acquired:
+                        logger.info(
+                            "[job] Another instance is executing executor cleanup, skipping this execution"
+                        )
+                    else:
+                        async with AsyncSessionLocal() as db:
+                            await job_service.cleanup_stale_executors(db)
         except Exception as e:
-            # Log and continue loop
             logger.error(f"[job] cleanup stale executors error: {e}")
-        # Wait with wake-up capability
-        stop_event.wait(timeout=settings.TASK_EXECUTOR_CLEANUP_INTERVAL_SECONDS)
+
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=settings.TASK_EXECUTOR_CLEANUP_INTERVAL_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            pass
 
 
 def repo_update_worker(stop_event: threading.Event):
@@ -163,16 +203,12 @@ def start_background_jobs(app):
     Args:
         app: FastAPI application instance
     """
-    # Start cleanup thread
-    app.state.cleanup_stop_event = threading.Event()
-    app.state.cleanup_thread = threading.Thread(
-        target=cleanup_worker,
-        args=(app.state.cleanup_stop_event,),
-        name="subtask-cleanup-worker",
-        daemon=True,
+    # Start cleanup async task
+    app.state.cleanup_stop_event = asyncio.Event()
+    app.state.cleanup_task = asyncio.create_task(
+        cleanup_worker(app.state.cleanup_stop_event)
     )
-    app.state.cleanup_thread.start()
-    logger.info("[job] cleanup stale executors worker started")
+    logger.info("[job] cleanup stale executors worker started (async)")
 
     # Start repository update thread
     app.state.repo_update_stop_event = threading.Event()
@@ -191,20 +227,24 @@ def start_background_jobs(app):
     # - celery -A app.core.celery_app beat --loglevel=info
 
 
-def stop_background_jobs(app):
+async def stop_background_jobs(app):
     """
     Stop all background jobs
 
     Args:
         app: FastAPI application instance
     """
-    # Stop cleanup thread gracefully
+    # Stop cleanup async task
     stop_event = getattr(app.state, "cleanup_stop_event", None)
-    thread = getattr(app.state, "cleanup_thread", None)
+    cleanup_task = getattr(app.state, "cleanup_task", None)
     if stop_event:
         stop_event.set()
-    if thread:
-        thread.join(timeout=5.0)
+    if cleanup_task:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
     logger.info("[job] cleanup stale executors worker stopped")
 
     # Stop repository update thread gracefully

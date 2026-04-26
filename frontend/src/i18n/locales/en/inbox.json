@@ -25,10 +25,16 @@
     "auto_process": "Auto Process",
     "auto_process_enabled": "Enable auto processing",
     "auto_process_team": "Processing Agent",
+    "auto_process_model": "Processing Model",
     "auto_process_subscription": "Linked Subscription",
+    "auto_process_mode_label": "Processing Mode",
+    "auto_process_mode_subscription": "Subscription Mode",
+    "auto_process_mode_direct_agent": "Direct Agent Mode",
     "select_subscription": "Select Subscription",
     "select_subscription_placeholder": "Choose a subscription...",
+    "select_team_placeholder": "Select Agent",
     "no_inbox_subscriptions": "No inbox-type subscriptions available",
+    "no_teams_available": "No agents available",
     "subscription_ref_label": "Auto-Process Subscription",
     "trigger_mode": "Processing Mode",
     "trigger_immediate": "Immediate",
@@ -64,6 +70,10 @@
     "delete_confirm_title": "Are you sure you want to delete this message?",
     "delete_confirm_message": "The message cannot be recovered after deletion.",
     "process": "Process",
+    "send_to_chat": "Send to Chat",
+    "send_to_device": "Send to Device",
+    "send_to_code": "Send to Code",
+    "device_fallback_to_chat": "No active device is available. Switched to chat instead.",
     "view_original": "View original conversation",
     "view_result": "View result",
     "retry": "Retry",
@@ -72,6 +82,7 @@
     "process_error": "Error",
     "view_processing_task": "View Processing Task",
     "retry_count": "Retry Count",
+    "view_task": "View Conversation →",
     "status": {
       "unread": "Unread",
       "read": "Read",
@@ -162,5 +173,22 @@
     "delete_success": "Deleted {{count}} messages",
     "delete_confirm_title": "Delete selected messages?",
     "delete_confirm_message": "{{count}} messages will be deleted. This action cannot be undone."
+  },
+  "templates": {
+    "title": "Import from Template",
+    "description": "Choose a template to set up an automated inbox workflow",
+    "import": "Import",
+    "importing": "Importing...",
+    "import_success": "Template imported successfully! Queue \"{{queueName}}\" has been created.",
+    "import_failed": "Failed to import template",
+    "empty": "No templates available"
+  },
+  "create_choice": {
+    "title": "New Queue",
+    "description": "Choose how to create",
+    "from_template": "Import from Template",
+    "from_template_desc": "Quickly create an automated workflow using a preset template",
+    "custom": "Custom",
+    "custom_desc": "Manually configure queue name, description, and processing rules"
   }
 }

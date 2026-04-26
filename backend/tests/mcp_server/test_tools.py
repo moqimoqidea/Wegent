@@ -123,9 +123,9 @@ class TestKnowledgeTool:
         """Test that the backward-compatible tool registry is built for the knowledge server."""
         module = get_knowledge_module()
 
-        assert "list_knowledge_bases" in module.KNOWLEDGE_MCP_TOOLS
-        assert "list_documents" in module.KNOWLEDGE_MCP_TOOLS
-        assert "read_document_content" in module.KNOWLEDGE_MCP_TOOLS
+        assert "wegent_kb_list_knowledge_bases" in module.KNOWLEDGE_MCP_TOOLS
+        assert "wegent_kb_list_documents" in module.KNOWLEDGE_MCP_TOOLS
+        assert "wegent_kb_read_document_content" in module.KNOWLEDGE_MCP_TOOLS
 
     def test_read_document_content_returns_orchestrator_payload(self):
         """Test that read_document_content returns the orchestrator payload."""

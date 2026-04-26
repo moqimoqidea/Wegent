@@ -566,6 +566,12 @@ export function useChatStreamHandlers({
           ctx => (ctx as import('@/types/context').QueueMessageContext).attachmentContextIds ?? []
         )
 
+        // Collect inbox attachment metadata for immediate display in message bubble.
+        // These are SubtaskContext records pre-written during ingest, displayed as attachment badges.
+        const inboxAttachmentContexts = queueMessageContexts.flatMap(
+          ctx => (ctx as import('@/types/context').QueueMessageContext).inboxAttachments ?? []
+        )
+
         // Add selected document IDs as a context for notebook mode
         // This allows direct content injection of selected documents
         if (
@@ -609,6 +615,20 @@ export function useChatStreamHandlers({
             file_extension: attachment.file_extension,
             file_size: attachment.file_size,
             mime_type: attachment.mime_type,
+          })
+        }
+
+        // Add inbox attachments (from queue_message contexts) as attachment contexts
+        // so they appear as badges in the sent message bubble
+        for (const inboxAtt of inboxAttachmentContexts) {
+          pendingContexts.push({
+            id: inboxAtt.id,
+            context_type: 'attachment',
+            name: inboxAtt.name,
+            status: 'ready',
+            file_extension: inboxAtt.file_extension,
+            file_size: inboxAtt.file_size,
+            mime_type: inboxAtt.mime_type,
           })
         }
 
@@ -692,6 +712,14 @@ export function useChatStreamHandlers({
                 // This ensures full task functionality (follow-up questions, link sharing, etc.)
                 if (taskType === 'knowledge' && knowledgeBaseId && pathname === '/knowledge') {
                   router.push(`/knowledge/document/${knowledgeBaseId}?taskId=${completedTaskId}`)
+                } else if (taskType === 'task' && !pathname?.startsWith('/devices')) {
+                  // For device tasks started from /chat, navigate to /devices/chat
+                  const params = new URLSearchParams()
+                  params.set('taskId', String(completedTaskId))
+                  if (effectiveDeviceId) {
+                    params.set('deviceId', effectiveDeviceId)
+                  }
+                  router.push(`/devices/chat?${params.toString()}`)
                 } else {
                   const params = new URLSearchParams(Array.from(searchParams.entries()))
                   params.set('taskId', String(completedTaskId))

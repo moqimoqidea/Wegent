@@ -88,6 +88,8 @@ export interface ModelSelectorProps {
   taskId?: number | null
   /** Task's model_id from backend - used as fallback when no session preference exists */
   taskModelId?: string | null
+  /** Initial force override value when restoring a persisted non-task selection */
+  initialForceOverride?: boolean
   /** Model category type for filtering and display (default: 'llm') */
   modelCategoryType?: ModelCategoryType
 }
@@ -127,6 +129,7 @@ export default function ModelSelector({
   teamId,
   taskId,
   taskModelId,
+  initialForceOverride,
   modelCategoryType = 'llm',
 }: ModelSelectorProps) {
   const { t } = useTranslation()
@@ -139,6 +142,7 @@ export default function ModelSelector({
     teamId: teamId ?? null,
     taskId: taskId ?? null,
     taskModelId,
+    initialForceOverride,
     selectedTeam,
     disabled,
     modelCategoryType,

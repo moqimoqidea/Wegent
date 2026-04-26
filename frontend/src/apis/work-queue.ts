@@ -24,6 +24,11 @@ export interface TeamRef {
   name: string
 }
 
+export interface ModelRef {
+  namespace: string
+  name: string
+}
+
 export interface SubscriptionRef {
   namespace: string
   name: string
@@ -38,7 +43,10 @@ export interface ProcessCondition {
 
 export interface AutoProcessConfig {
   enabled: boolean
+  mode?: 'subscription' | 'direct_agent'
   teamRef?: TeamRef
+  modelRef?: ModelRef
+  forceOverrideBotModel?: boolean
   subscriptionRef?: SubscriptionRef
   triggerMode: TriggerMode
   scheduleInterval?: number
@@ -352,4 +360,8 @@ export async function ingestMessage(
 
 export async function retryMessage(messageId: number): Promise<QueueMessage> {
   return apiClient.post<QueueMessage>(`/queue-messages/${messageId}/retry`)
+}
+
+export async function processMessage(messageId: number): Promise<QueueMessage> {
+  return apiClient.post<QueueMessage>(`/queue-messages/${messageId}/process`)
 }

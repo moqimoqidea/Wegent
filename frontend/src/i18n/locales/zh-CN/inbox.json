@@ -25,10 +25,16 @@
     "auto_process": "自动处理",
     "auto_process_enabled": "启用自动处理",
     "auto_process_team": "处理智能体",
+    "auto_process_model": "处理模型",
     "auto_process_subscription": "关联订阅",
+    "auto_process_mode_label": "处理模式",
+    "auto_process_mode_subscription": "订阅器模式",
+    "auto_process_mode_direct_agent": "直接对话模式",
     "select_subscription": "选择订阅",
     "select_subscription_placeholder": "选择一个订阅...",
+    "select_team_placeholder": "选择智能体",
     "no_inbox_subscriptions": "暂无收件箱类型的订阅",
+    "no_teams_available": "暂无可用智能体",
     "subscription_ref_label": "自动处理订阅",
     "trigger_mode": "处理模式",
     "trigger_immediate": "立即处理",
@@ -64,6 +70,10 @@
     "delete_confirm_title": "确定要删除此消息吗？",
     "delete_confirm_message": "删除后消息将无法恢复。",
     "process": "处理",
+    "send_to_chat": "发送到聊天",
+    "send_to_device": "发送到设备",
+    "send_to_code": "发送到编码",
+    "device_fallback_to_chat": "当前没有可用设备，已切换到聊天处理",
     "view_original": "查看原始对话",
     "view_result": "查看处理结果",
     "retry": "重试",
@@ -72,6 +82,7 @@
     "process_error": "错误信息",
     "view_processing_task": "查看处理任务",
     "retry_count": "重试次数",
+    "view_task": "查看对话 →",
     "status": {
       "unread": "未读",
       "read": "已读",
@@ -162,5 +173,22 @@
     "delete_success": "已删除 {{count}} 条消息",
     "delete_confirm_title": "确定要删除选中的消息吗？",
     "delete_confirm_message": "将删除 {{count}} 条消息，此操作不可撤销。"
+  },
+  "templates": {
+    "title": "从模板导入",
+    "description": "选择一个模板来设置自动化收件箱工作流",
+    "import": "导入",
+    "importing": "导入中...",
+    "import_success": "模板导入成功！已创建队列「{{queueName}}」。",
+    "import_failed": "模板导入失败",
+    "empty": "暂无可用模板"
+  },
+  "create_choice": {
+    "title": "新建队列",
+    "description": "选择创建方式",
+    "from_template": "从模板导入",
+    "from_template_desc": "使用预设模板快速创建自动化工作流",
+    "custom": "自定义创建",
+    "custom_desc": "手动配置队列名称、描述和处理规则"
   }
 }

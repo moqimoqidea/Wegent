@@ -1092,6 +1092,9 @@ function ChatAreaContent({
     onEditTeam: extension?.teamEdit?.canEdit ? extension.teamEdit.onEdit : undefined,
   }
 
+  const shouldMountQueueMessageHandler =
+    taskType === 'chat' || taskType === 'task' || taskType === 'code'
+
   return (
     <div
       ref={chatAreaRef}
@@ -1099,7 +1102,7 @@ function ChatAreaContent({
       style={{ height: '100%', boxSizing: 'border-box' }}
     >
       {/* Queue Message Handler - processes process_message URL parameter from inbox */}
-      {taskType === 'chat' && (
+      {shouldMountQueueMessageHandler && (
         <QueueMessageHandler onQueueMessageLoaded={handleQueueMessageLoaded} />
       )}
 

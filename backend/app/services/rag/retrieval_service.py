@@ -302,10 +302,10 @@ class RetrievalService:
         return "rag_retrieval"
 
     @trace_async(
-        span_name="rag.retrieve_for_chat_shell",
+        span_name="rag.retrieve_with_routing",
         tracer_name="backend.services.rag",
     )
-    async def retrieve_for_chat_shell(
+    async def retrieve_with_routing(
         self,
         query: str,
         knowledge_base_ids: list[int],
@@ -324,11 +324,32 @@ class RetrievalService:
         max_direct_chunks: int = CHAT_SHELL_DEFAULT_MAX_DIRECT_CHUNKS,
         restricted_mode: bool = False,
     ) -> Dict[str, Any]:
-        """Retrieve KB data for chat_shell with Backend-side routing.
+        """Retrieve knowledge with automatic routing between direct injection and RAG.
 
-        This method centralizes the coarse routing decision that was previously made
-        in chat_shell: whether to fetch all chunks for direct injection, or perform
-        regular RAG retrieval.
+        This method centralizes the routing decision: whether to fetch all chunks
+        for direct injection, or perform regular RAG retrieval based on context
+        window capacity and content size.
+
+        Args:
+            query: Search query text.
+            knowledge_base_ids: List of knowledge base IDs to search.
+            db: Database session.
+            max_results: Maximum number of results to return per KB.
+            document_ids: Optional list of document IDs to filter.
+            metadata_condition: Optional metadata filtering conditions.
+            knowledge_base_configs: Optional pre-built KB runtime configs.
+            user_name: User name for embedding API headers.
+            context_window: Model context window size for routing decision.
+            route_mode: Routing strategy - "auto", "direct_injection", or "rag_retrieval".
+            user_id: User ID for restricted mode checks.
+            used_context_tokens: Tokens already used in conversation.
+            reserved_output_tokens: Tokens reserved for model output.
+            context_buffer_ratio: Safety buffer ratio for context.
+            max_direct_chunks: Maximum chunks allowed for direct injection.
+            restricted_mode: Whether to apply restricted search policies.
+
+        Returns:
+            Dict with mode, records, total count, and estimated tokens.
         """
         set_span_attribute("rag.route_mode", route_mode)
         set_span_attribute("rag.kb_count", len(knowledge_base_ids))
@@ -439,7 +460,7 @@ class RetrievalService:
                     direct_records.append(
                         {
                             "content": chunk.get("content", ""),
-                            "score": None,
+                            "score": 1.0,  # Direct injection returns all chunks, use max score
                             "title": chunk.get("title", "Unknown"),
                             "metadata": chunk.get("metadata"),
                             "knowledge_base_id": kb_id,
@@ -701,17 +722,20 @@ class RetrievalService:
         query: Optional[str] = None,
         metadata_condition: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Get all chunks from a knowledge base without permission check.
+        """Get all chunks from a knowledge base without permission check.
 
         This method is used for smart context injection where we need all
         chunks from a knowledge base to determine if direct injection is possible.
+
+        Uses gateway (local or remote based on RAG_RUNTIME_MODE) instead of
+        directly accessing storage backend, enabling proper architecture separation.
 
         Args:
             knowledge_base_id: Knowledge base ID
             db: Database session
             max_chunks: Maximum number of chunks to retrieve (safety limit)
             query: Optional query string for logging purposes
+            metadata_condition: Optional metadata filter conditions
 
         Returns:
             List of chunk dicts with content, title, chunk_id, doc_ref, metadata
@@ -719,98 +743,59 @@ class RetrievalService:
         Raises:
             ValueError: If knowledge base not found or configuration invalid
         """
-        from app.models.kind import Kind
+        from app.services.rag.gateway_factory import get_list_chunks_gateway
+        from app.services.rag.runtime_resolver import RagRuntimeResolver
 
-        # Get knowledge base directly without permission check
-        kb = (
-            db.query(Kind)
-            .filter(
-                Kind.id == knowledge_base_id,
-                Kind.kind == "KnowledgeBase",
-                Kind.is_active,
-            )
-            .first()
-        )
-
-        if not kb:
-            raise ValueError(f"Knowledge base {knowledge_base_id} not found")
-
-        resolved_config = self._build_runtime_query_config(
-            kb=kb,
+        # Build runtime spec via resolver
+        runtime_resolver = RagRuntimeResolver()
+        spec = runtime_resolver.build_internal_list_chunks_runtime_spec(
             db=db,
-        )
-        storage_backend = create_storage_backend_from_runtime_config(
-            resolved_config.retriever_config
-        )
-
-        # Use knowledge base ID as knowledge_id
-        knowledge_id = str(kb.id)
-        backend_name = storage_backend.__class__.__name__
-        index_name = ""
-        try:
-            index_name = storage_backend.get_index_name(
-                knowledge_id, user_id=kb.user_id
-            )
-        except Exception as e:
-            logger.warning(
-                "[RAG] Failed to precompute index name for get_all_chunks: kb_id=%s, "
-                "knowledge_id=%s, backend=%s, error=%s",
-                knowledge_base_id,
-                knowledge_id,
-                backend_name,
-                e,
-            )
-
-        query_log = f", query={query[:50]}..." if query else ""
-        logger.info(
-            "[RAG] get_all_chunks start: kb_id=%s, kb_name=%s, knowledge_id=%s, "
-            "namespace=%s, backend=%s, retriever=%s/%s, index_name=%s, max_chunks=%s, "
-            "kb_owner_id=%s%s",
-            knowledge_base_id,
-            kb.name,
-            knowledge_id,
-            kb.namespace,
-            backend_name,
-            resolved_config.retriever_config.namespace,
-            resolved_config.retriever_config.name,
-            index_name or "<unknown>",
-            max_chunks,
-            kb.user_id,
-            query_log,
-        )
-
-        # Get all chunks from storage backend
-        # Run in thread pool to avoid event loop conflicts
-        chunks = await asyncio.to_thread(
-            storage_backend.get_all_chunks,
-            knowledge_id=knowledge_id,
+            knowledge_base_id=knowledge_base_id,
             max_chunks=max_chunks,
-            user_id=kb.user_id,
+            query=query,
             metadata_condition=metadata_condition,
         )
 
+        query_log = f", query={query[:50]}..." if query else ""
         logger.info(
-            "[RAG] get_all_chunks completed: kb_id=%s, kb_name=%s, chunk_count=%s, "
-            "backend=%s, index_name=%s%s",
+            "[RAG] get_all_chunks start: kb_id=%s, max_chunks=%s%s",
             knowledge_base_id,
-            kb.name,
-            len(chunks),
-            backend_name,
-            index_name or "<unknown>",
+            max_chunks,
+            query_log,
+        )
+
+        # Use gateway to get chunks (supports local and remote modes)
+        rag_gateway = get_list_chunks_gateway()
+        result = await rag_gateway.list_chunks(spec, db=db)
+
+        chunks = result.get("chunks", [])
+        total = result.get("total", 0)
+
+        logger.info(
+            "[RAG] get_all_chunks completed: kb_id=%s, chunk_count=%s%s",
+            knowledge_base_id,
+            total,
             query_log,
         )
         if not chunks:
             logger.warning(
-                "[RAG] get_all_chunks returned empty result: kb_id=%s, kb_name=%s, "
-                "knowledge_id=%s, backend=%s, index_name=%s, retriever=%s/%s%s",
+                "[RAG] get_all_chunks returned empty result: kb_id=%s%s",
                 knowledge_base_id,
-                kb.name,
-                knowledge_id,
-                backend_name,
-                index_name or "<unknown>",
-                resolved_config.retriever_config.namespace,
-                resolved_config.retriever_config.name,
                 query_log,
             )
 
-        return chunks
+        # Convert RemoteListChunkRecord to dict format for backward compatibility
+        return [
+            {
+                "content": chunk.get("content", ""),
+                "title": chunk.get("title", ""),
+                "chunk_id": chunk.get("chunk_id"),
+                "doc_ref": chunk.get("doc_ref"),
+                "metadata": chunk.get("metadata"),
+            }
+            for chunk in chunks
+        ]
+
+
+# Backward compatibility alias
+retrieve_for_chat_shell = RetrievalService.retrieve_with_routing
