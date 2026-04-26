@@ -14,6 +14,8 @@ import re
 from enum import Enum
 from typing import Optional, Union
 
+from shared.telemetry.decorators import trace_sync
+
 
 class ChatErrorCode(str, Enum):
     """Structured error codes for chat errors."""
@@ -286,6 +288,7 @@ def _classify_by_message(message: str) -> ChatErrorCode:
     return ChatErrorCode.GENERIC_ERROR
 
 
+@trace_sync("classify_error", "shared")
 def classify_error(error: Union[Exception, str]) -> str:
     """Classify an error into a structured error code.
 
@@ -313,6 +316,7 @@ def classify_error(error: Union[Exception, str]) -> str:
 _HTTP_STATUS_PATTERN = re.compile(r"Error code:\s*(\d{3})")
 
 
+@trace_sync("extract_http_status_code", "shared")
 def extract_http_status_code(error: Union[Exception, str]) -> Optional[int]:
     """Extract HTTP status code from an error.
 
@@ -335,6 +339,7 @@ def extract_http_status_code(error: Union[Exception, str]) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
+@trace_sync("format_error_message", "shared")
 def format_error_message(error: Exception) -> str:
     """Format an exception into an error message string.
 

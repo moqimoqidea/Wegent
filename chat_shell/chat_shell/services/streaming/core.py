@@ -433,9 +433,11 @@ class StreamingCore:
         error_code = classify_error(error)
         await self.emitter.error(error_msg, code=error_code)
 
-        # Emit done event with error content
+        # Emit done event with error content so error_type is persisted on page refresh
         await self.emitter.done(
             content=self.state.full_response,
+            error=error_msg,
+            error_code=error_code,
         )
 
     def set_mcp_client(self, client: Any) -> None:

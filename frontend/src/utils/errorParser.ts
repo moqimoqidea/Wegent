@@ -173,7 +173,7 @@ function classifyByMessage(errorMessage: string): ParsedError {
   // Container OOM
   if (
     lowerMessage.includes('out of memory') ||
-    lowerMessage.includes('oom') ||
+    /\boom\b/.test(lowerMessage) ||
     lowerMessage.includes('memory allocation')
   ) {
     return buildResult('container_oom', errorMessage)

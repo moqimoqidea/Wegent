@@ -247,7 +247,7 @@ export function ErrorCard({
       />
       <ErrorCardCopyDeveloper
         error={error}
-        errorType={parsedError.type}
+        errorType={errorType ?? parsedError.type}
         subtaskId={subtaskId}
         taskId={taskId}
         timestamp={timestamp}

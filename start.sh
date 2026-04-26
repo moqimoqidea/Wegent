@@ -824,6 +824,7 @@ CLI_KNOWLEDGE_RUNTIME_PORT=""
 CLI_WEGENT_FRONTEND_PORT=""
 CLI_EXECUTOR_IMAGE=""
 CLI_WEGENT_SOCKET_URL=""
+CLI_CLEAN_FRONTEND_CACHE=""
 CLEAN_FRONTEND_CACHE="false"
 
 while [[ $# -gt 0 ]]; do
@@ -857,6 +858,7 @@ case $1 in
         shift 2
         ;;
     --clean-frontend-cache)
+        CLI_CLEAN_FRONTEND_CACHE="true"
         CLEAN_FRONTEND_CACHE="true"
         shift
         ;;
@@ -916,6 +918,7 @@ load_config
 [ -n "$CLI_WEGENT_FRONTEND_PORT" ] && WEGENT_FRONTEND_PORT="$CLI_WEGENT_FRONTEND_PORT"
 [ -n "$CLI_EXECUTOR_IMAGE" ] && EXECUTOR_IMAGE="$CLI_EXECUTOR_IMAGE"
 [ -n "$CLI_WEGENT_SOCKET_URL" ] && WEGENT_SOCKET_URL="$CLI_WEGENT_SOCKET_URL"
+[ -n "$CLI_CLEAN_FRONTEND_CACHE" ] && CLEAN_FRONTEND_CACHE="$CLI_CLEAN_FRONTEND_CACHE"
 
 # Compute derived URLs based on configured ports (if not already set from config)
 LOCAL_IP=$(get_local_ip)
