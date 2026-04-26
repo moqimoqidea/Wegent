@@ -196,7 +196,6 @@ function classifyByMessage(errorMessage: string): ParsedError {
 
   // Quota exceeded (check before rate_limit and permission — more specific)
   if (
-    lowerMessage.includes('商业付费模型额度已用完') ||
     lowerMessage.includes('quota exceeded') ||
     lowerMessage.includes('insufficient_quota') ||
     lowerMessage.includes('billing') ||
@@ -222,9 +221,7 @@ function classifyByMessage(errorMessage: string): ParsedError {
   if (
     lowerMessage.includes('permission_denied') ||
     lowerMessage.includes('permission denied') ||
-    lowerMessage.includes('permission_error') ||
-    lowerMessage.includes('无权限调用此模型') ||
-    lowerMessage.includes('禁止使用外部模型')
+    lowerMessage.includes('permission_error')
   ) {
     return buildResult('permission_denied', errorMessage)
   }
