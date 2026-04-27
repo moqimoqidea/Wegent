@@ -168,6 +168,15 @@ export interface UnifiedModelListResponse {
   data: UnifiedModel[]
 }
 
+export interface ErrorRecommendationEntry {
+  description: string
+  models: UnifiedModel[]
+}
+
+export type ErrorRecommendationsResponse = {
+  data: Record<string, ErrorRecommendationEntry>
+}
+
 // Test Connection Types
 export interface TestConnectionRequest {
   provider_type: 'openai' | 'anthropic' | 'gemini' | 'gemini-deep-research' | 'openai-responses'
@@ -374,5 +383,12 @@ export const modelApis = {
    */
   async getCompatibleModels(shellType: string): Promise<CompatibleModelsResponse> {
     return apiClient.get(`/models/compatible?shell_type=${encodeURIComponent(shellType)}`)
+  },
+
+  /**
+   * Get model recommendations for specific error types
+   */
+  async getErrorRecommendations(): Promise<ErrorRecommendationsResponse> {
+    return apiClient.get('/models/error-recommendations')
   },
 }
