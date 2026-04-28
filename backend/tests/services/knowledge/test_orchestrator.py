@@ -1292,7 +1292,9 @@ class TestListDocumentsCreatedBy:
             mock_db.query.return_value = user_query
 
             result = orchestrator.list_documents(
-                db=mock_db, user=user, knowledge_base_id=10,
+                db=mock_db,
+                user=user,
+                knowledge_base_id=10,
             )
 
         assert isinstance(result, KnowledgeDocumentListResponse)
@@ -1329,7 +1331,9 @@ class TestListDocumentsCreatedBy:
             mock_db.query.return_value = user_query
 
             result = orchestrator.list_documents(
-                db=mock_db, user=user, knowledge_base_id=10,
+                db=mock_db,
+                user=user,
+                knowledge_base_id=10,
             )
 
         assert result.items[0].created_by is None
@@ -1354,7 +1358,9 @@ class TestListDocumentsCreatedBy:
             mock_db = MagicMock()
 
             result = orchestrator.list_documents(
-                db=mock_db, user=user, knowledge_base_id=10,
+                db=mock_db,
+                user=user,
+                knowledge_base_id=10,
             )
 
         # No db.query should be called since documents list is empty
@@ -1391,7 +1397,9 @@ class TestListDocumentsCreatedBy:
             mock_db.query.return_value = user_query
 
             result = orchestrator.list_documents(
-                db=mock_db, user=user, knowledge_base_id=10,
+                db=mock_db,
+                user=user,
+                knowledge_base_id=10,
             )
 
         # Both documents should have the same created_by

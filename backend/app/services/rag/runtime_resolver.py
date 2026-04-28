@@ -11,7 +11,6 @@ from app.services.knowledge.index_runtime import (
     get_kb_index_info,
     get_kb_index_info_by_record,
 )
-from app.services.rag.embedding.factory import _process_custom_headers_placeholders
 from app.services.rag.runtime_specs import (
     ConnectionTestRuntimeSpec,
     DeleteRuntimeSpec,
@@ -31,6 +30,7 @@ from knowledge_engine.embedding.capabilities import (
     normalize_additional_input_modalities,
 )
 from shared.utils.crypto import decrypt_api_key
+from shared.utils.placeholder import process_custom_headers_placeholders
 
 
 class RagRuntimeResolver:
@@ -268,28 +268,6 @@ class RagRuntimeResolver:
             metadata_condition=metadata_condition,
         )
 
-    def build_internal_list_chunks_runtime_spec(
-        self,
-        *,
-        db: Session,
-        knowledge_base_id: int,
-        max_chunks: int,
-        query: str | None = None,
-        metadata_condition: dict | None = None,
-    ) -> ListChunksRuntimeSpec:
-        kb = self._get_knowledge_base_record(db=db, knowledge_base_id=knowledge_base_id)
-        if kb is None:
-            raise ValueError(f"Knowledge base {knowledge_base_id} not found")
-
-        return self._build_list_chunks_runtime_spec(
-            db=db,
-            kb=kb,
-            index_owner_user_id=kb.user_id,
-            max_chunks=max_chunks,
-            query=query,
-            metadata_condition=metadata_condition,
-        )
-
     def _build_list_chunks_runtime_spec(
         self,
         *,
@@ -416,42 +394,6 @@ class RagRuntimeResolver:
             current_user_id=user_id,
             user_name=user_name,
             spec_type="drop",
-        )
-
-    def build_internal_purge_index_runtime_spec(
-        self,
-        *,
-        db: Session,
-        knowledge_base_id: int,
-        index_owner_user_id: int,
-        retriever_config: RuntimeRetrieverConfig | dict,
-    ) -> PurgeKnowledgeRuntimeSpec:
-        kb = self._get_knowledge_base_record(db=db, knowledge_base_id=knowledge_base_id)
-        if kb is None:
-            raise ValueError(f"Knowledge base {knowledge_base_id} not found")
-
-        return PurgeKnowledgeRuntimeSpec(
-            knowledge_base_id=knowledge_base_id,
-            index_owner_user_id=index_owner_user_id,
-            retriever_config=retriever_config,
-        )
-
-    def build_internal_drop_index_runtime_spec(
-        self,
-        *,
-        db: Session,
-        knowledge_base_id: int,
-        index_owner_user_id: int,
-        retriever_config: RuntimeRetrieverConfig | dict,
-    ) -> DropKnowledgeIndexRuntimeSpec:
-        kb = self._get_knowledge_base_record(db=db, knowledge_base_id=knowledge_base_id)
-        if kb is None:
-            raise ValueError(f"Knowledge base {knowledge_base_id} not found")
-
-        return DropKnowledgeIndexRuntimeSpec(
-            knowledge_base_id=knowledge_base_id,
-            index_owner_user_id=index_owner_user_id,
-            retriever_config=retriever_config,
         )
 
     def _build_query_knowledge_base_configs(
@@ -658,7 +600,7 @@ class RagRuntimeResolver:
         protocol = spec.get("protocol") or env.get("model")
         custom_headers = env.get("custom_headers", {})
         if custom_headers and isinstance(custom_headers, dict):
-            custom_headers = _process_custom_headers_placeholders(
+            custom_headers = process_custom_headers_placeholders(
                 custom_headers,
                 user_name,
             )
